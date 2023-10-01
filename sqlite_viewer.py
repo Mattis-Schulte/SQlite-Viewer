@@ -1,7 +1,10 @@
 import functools
 import math
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigureCanvas
 import os.path as path
 import pandas as pd
+import seaborn as sns
 import sqlite3
 import threading
 import wx
@@ -112,6 +115,51 @@ class ColumnSelectionDialog(wx.Dialog):
         self.EndModal(wx.ID_OK)
 
 
+class MatplotlibFrame(wx.Frame):
+    def __init__(self, parent):
+        super().__init__(parent)
+
+    def plot_histogram(self, df: pd.DataFrame, columns: list):
+        self.plot(df=df, graphs=columns, plot_func=sns.histplot)
+
+    def plot_scatter(self, df: pd.DataFrame, column_combinations: list):
+        self.plot(df=df, graphs=column_combinations, plot_func=sns.scatterplot)
+
+    def plot(self, df: pd.DataFrame, graphs: list, plot_func: callable):
+        num_plots = len(graphs)
+        num_cols = math.ceil(math.sqrt(num_plots))
+        num_rows = math.ceil(num_plots / num_cols)
+
+        plot_type = plot_func.__name__.replace("plot", "")
+        self.SetTitle(f"SQLite Viewer: Showing {plot_type} plot{'s'[:num_plots^1]} \"{', '.join([' / '.join(graph) if isinstance(graph, list) else graph for graph in graphs])}\"")
+
+        sns.set_style("darkgrid")
+        fig, axes = plt.subplots(num_rows, num_cols, figsize=(num_cols * 5, num_rows * 4))
+        canvas = FigureCanvas(self, -1, fig)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(canvas, 1, wx.EXPAND)
+        self.SetSizerAndFit(sizer)
+        
+        if len(df) > (sample_size := 250_000):
+            df = df.sample(n=sample_size, random_state=1)
+            df_sampled = True
+
+        for i, graph in enumerate(graphs):
+            ax = axes[i // num_cols, i % num_cols] if num_rows > 1 else axes[i % num_cols] if num_cols > 1 else axes
+            if df_sampled:
+                ax.text(0.95, 0.95, f"Sampled {sample_size:,} rows", transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="right", bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
+            if plot_type == "hist":
+                bins = min(len(df[graph].unique()), 200)
+                plot_func(data=df, x=graph, ax=ax, bins=bins)
+            elif plot_type == "scatter":
+                plot_func(data=df, x=graph[0], y=graph[1], ax=ax)
+            else:
+                raise ValueError(f"Unsupported plot type: {plot_type}")
+
+        plt.tight_layout()
+        canvas.draw()
+
+
 class SQLiteViewer(wx.Frame):
     """
     A class to display a GUI for viewing SQLite and other databases
@@ -171,6 +219,7 @@ class SQLiteViewer(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_copy, id=wx.ID_COPY)
         self.Bind(wx.EVT_MENU, self.on_select_all, id=wx.ID_SELECTALL)
         self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_IDS["ID_DESCRIPTIVE_STATISTICS"])
+        self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_IDS["ID_HISTOGRAM"])
         self.list_ctrl.Bind(wx.EVT_LIST_ITEM_SELECTED, self.on_select_cell)
         self.list_ctrl.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.on_select_cell)
         self.table_switcher.Bind(wx.EVT_CHOICE, self.on_switch_table)
@@ -221,7 +270,7 @@ class SQLiteViewer(wx.Frame):
 
     def load_database_file(self, filename):
         try:
-            db = DatabaseConnection(filename)
+            db = DatabaseConnection(db_file=filename)
             table_names = db.get_table_or_sheet_names()
             if not table_names:
                 wx.MessageBox("No tables found in database", "Error opening database", wx.OK | wx.ICON_ERROR)
@@ -364,33 +413,40 @@ class SQLiteViewer(wx.Frame):
             menu_id = event.GetId()
 
             if menu_id == self.CUSTOM_IDS["ID_DESCRIPTIVE_STATISTICS"]:
-                self.show_column_selection(callback=self.descriptive_statistics)
+                self.show_column_selection(callback=self.on_descriptive_statistics)
             elif menu_id == self.CUSTOM_IDS["ID_HISTOGRAM"]:
-                self.show_column_selection(self.histogram)
+                self.show_column_selection(callback=self.on_histogram, numerical_only=True)
             elif menu_id == self.CUSTOM_IDS["ID_SCATTER_PLOT"]:
-                self.show_column_selection(self.scatter_plot)
+                self.show_column_selection(callback=self.scatter_plot)
             elif menu_id == self.CUSTOM_IDS["ID_CORRELATION_MATRIX"]:
-                self.show_column_selection(self.correlation_matrix)
+                self.show_column_selection(callback=self.correlation_matrix)
             elif menu_id == self.CUSTOM_IDS["ID_BEST_FITTED_DISTRIBUTION"]:
-                self.show_column_selection(self.best_fitted_distribution)
+                self.show_column_selection(callback=self.best_fitted_distribution)
             elif menu_id == self.CUSTOM_IDS["ID_REGRESSION_ANALYSIS"]:
-                self.show_column_selection(self.regression_analysis)
+                self.show_column_selection(callback=self.regression_analysis)
             elif menu_id == self.CUSTOM_IDS["ID_ANOVA"]:
-                self.show_column_selection(self.anova)
+                self.show_column_selection(callback=self.anova)
         else:
             wx.MessageBox("Unable to perform operation, please load a database first", "Invalid operation", wx.OK | wx.ICON_ERROR)
 
-    def show_column_selection(self, callback: callable):
+    def show_column_selection(self, callback: callable, numerical_only: bool = False):
         df = self.db.get_df(table_name=self.table_switcher.GetStringSelection())
-        column_dialog = ColumnSelectionDialog(self, columns=df.columns.tolist())
+        columns = df.select_dtypes(include=["number", "datetime"]).columns.tolist() if numerical_only else df.columns.tolist()
+        
+        column_dialog = ColumnSelectionDialog(parent=self, columns=columns)
         if column_dialog.ShowModal() == wx.ID_OK:
-            selected_columns = [df.columns[i] for i in column_dialog.selected_columns]
+            selected_columns = [columns[i] for i in column_dialog.selected_columns]
             callback(df=df[selected_columns], columns=selected_columns)
 
-    def descriptive_statistics(self, df: pd.DataFrame, columns: list):
+    def on_descriptive_statistics(self, df: pd.DataFrame, columns: list):
         message = "\n".join([f"{column}:\n{df[column].describe(datetime_is_numeric=True)}\n" for column in columns])
         wx.MessageDialog(self, message, "Descriptive statistics", wx.OK | wx.ICON_INFORMATION).ShowModal()
 
+    def on_histogram(self, df: pd.DataFrame, columns: list):
+        frame = MatplotlibFrame(parent=self)
+        frame.Show()
+        frame.plot_histogram(df=df, columns=columns)
+   
     def on_column_click(self, event):
         column = self.list_ctrl.GetColumn(event.GetColumn()).GetText()
         if self.sort_column == column:
