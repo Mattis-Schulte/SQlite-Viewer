@@ -158,50 +158,40 @@ class MatplotlibFrame(wx.Frame):
         self._plot(df=df, graphs=column_combinations, plot_func=sns.scatterplot)
 
     def _plot(self, df: pd.DataFrame, graphs: list, plot_func: callable):
-        num_plots = len(graphs)
-        num_plot_cols = math.ceil(math.sqrt(num_plots))
-        num_plot_rows = math.ceil(num_plots / num_plot_cols)
-
         plot_type = plot_func.__name__.replace("plot", "")
-        self.SetTitle(f"SQLite Viewer: Showing {plot_type}plot{'s'[:num_plots^1]} \"{', '.join([' / '.join(graph) if isinstance(graph, list) else graph for graph in graphs])}\"")
+        self.SetTitle(f"SQLite Viewer: Showing {plot_type}plot{'s'[:len(graphs)^1]} \"{', '.join([' / '.join(graph) if isinstance(graph, list) else graph for graph in graphs])}\"")
 
         sns.set_style("darkgrid")
-        fig, axes = plt.subplots(num_plot_rows, num_plot_cols, figsize=(num_plot_cols * 5, num_plot_rows * 4))
+        sns.set_palette("colorblind")
+        fig, ax = plt.subplots(figsize=(8, 5))
         canvas = FigureCanvas(self, -1, fig)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(canvas, 1, wx.EXPAND)
         self.SetSizerAndFit(sizer)
-        
+
         # Sample the dataframe if it is too large to plot
         if df_sampled := len(df) > (sample_size := 250_000):
             df = df.sample(n=sample_size, random_state=1)
+        
+        # Combine the data from all the selected graphs and check if this combined data is skewed
+        combined_data = pd.concat([df[graph] if isinstance(graph, str) else df[graph[0]] / df[graph[1]] for graph in graphs], axis=0)
+        skewed = bool(abs(combined_data.skew()) > 1) if combined_data.dtype.kind in "biufc" else False
 
-        def plot_graph(graph, ax):
-            if df_sampled:
-                ax.text(0.95, 0.95, f"Sampled {sample_size:,} rows", transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="right", bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
+        for graph in graphs:
             if plot_type == "hist":
-                # Determine whether to apply logarithmic scaling based on the interquartile range and the maximum value
-                max_val, quartile75, quartile25 = df[graph].max(), df[graph].quantile(0.75), df[graph].quantile(0.25)
-                if quartile75 - quartile25 > 1000 and max_val/quartile75 > 5:
-                    plot_func(data=df, x=graph, ax=ax, bins="auto", log_scale=True)
-                    ax.set_xlabel(f"{graph} (log scale)")
-                else:
-                    plot_func(data=df, x=graph, ax=ax, bins="auto")
+                plot_func(data=df, x=graph, ax=ax, bins="auto", log_scale=skewed, label=f"{graph} (log scale)" if skewed else graph)
+                ax.set_xlabel(f"{graph} (log scale)" if skewed else graph)
             elif plot_type == "scatter":
-                plot_func(data=df, x=graph[0], y=graph[1], ax=ax)
+                plot_func(data=df, x=graph[0], y=graph[1], ax=ax, label=f"{graph[0]} / {graph[1]}")
             else:
                 raise ValueError(f"Unsupported plot type: {plot_type}")
 
-        threads = []
-        for i, graph in enumerate(graphs):
-            # Calculate the axes to plot on so that the plots form an evenly spaced grid
-            ax = axes[i // num_plot_cols, i % num_plot_cols] if num_plot_rows > 1 else axes[i % num_plot_cols] if num_plot_cols > 1 else axes
-            thread = threading.Thread(target=plot_graph, args=(graph, ax))
-            threads.append(thread)
-            thread.start()
+        if df_sampled:
+            ax.text(0.95, 0.95, f"Sampled {sample_size:,} rows", transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="right", bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
 
-        for thread in threads:
-            thread.join()
+        if len(graphs) > 1:
+            ax.legend(loc="lower right")
+            ax.set_xlabel("")
 
         plt.tight_layout()
         canvas.draw()
@@ -575,9 +565,12 @@ class SQLiteViewer(wx.Frame):
         :param df: The dataframe to plot
         :param columns: The names of the columns to plot as a list
         """
-        frame = MatplotlibFrame(parent=self)
-        frame.Show()
-        frame.plot_histogram(df=df, columns=columns)
+        if not (any(df[graph].dtype != "datetime64[ns]" for graph in columns) and any(df[graph].dtype == "datetime64[ns]" for graph in columns)):
+            frame = MatplotlibFrame(parent=self)
+            frame.Show()
+            frame.plot_histogram(df=df, columns=columns)
+        else:
+            wx.MessageBox("Unable to plot a histogram for a mix of numerical and datetime columns", "Invalid operation", wx.OK | wx.ICON_ERROR)
    
     def on_column_click(self, event):
         """
