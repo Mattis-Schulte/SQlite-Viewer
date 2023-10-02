@@ -176,9 +176,7 @@ class MatplotlibFrame(wx.Frame):
         if df_sampled := len(df) > (sample_size := 250_000):
             df = df.sample(n=sample_size, random_state=1)
 
-        for i, graph in enumerate(graphs):
-            # Calculate the axes to plot on so that the plots form an evenly spaced grid
-            ax = axes[i // num_plot_cols, i % num_plot_cols] if num_plot_rows > 1 else axes[i % num_plot_cols] if num_plot_cols > 1 else axes
+        def plot_graph(graph, ax):
             if df_sampled:
                 ax.text(0.95, 0.95, f"Sampled {sample_size:,} rows", transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="right", bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
             if plot_type == "hist":
@@ -193,6 +191,17 @@ class MatplotlibFrame(wx.Frame):
                 plot_func(data=df, x=graph[0], y=graph[1], ax=ax)
             else:
                 raise ValueError(f"Unsupported plot type: {plot_type}")
+
+        threads = []
+        for i, graph in enumerate(graphs):
+            # Calculate the axes to plot on so that the plots form an evenly spaced grid
+            ax = axes[i // num_plot_cols, i % num_plot_cols] if num_plot_rows > 1 else axes[i % num_plot_cols] if num_plot_cols > 1 else axes
+            thread = threading.Thread(target=plot_graph, args=(graph, ax))
+            threads.append(thread)
+            thread.start()
+
+        for thread in threads:
+            thread.join()
 
         plt.tight_layout()
         canvas.draw()
