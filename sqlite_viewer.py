@@ -99,12 +99,15 @@ class ColumnSelectionDialog(wx.Dialog):
 
     :param parent: The parent window
     :param columns: A list of columns to display in the listbox
+    :param min_count: The minimum number of columns that must be selected
+    :param max_count: The maximum number of columns that can be selected
     """
     ignore_filters = True
 
-    def __init__(self, parent: wx.Frame, columns: list):
+    def __init__(self, parent: wx.Frame, columns: list, min_count: int = 1, max_count: int | None = None):
         super().__init__(parent, title="Select columns to analyze", size=(300, 225))
 
+        self.min_count, self.max_count = min_count, max_count
         self.listbox = wx.ListBox(self, choices=columns, style=wx.LB_MULTIPLE)
         self.ignore_filters_checkbox = wx.CheckBox(self, label="Ignore applied filters")
         self.ignore_filters_checkbox.SetValue(ColumnSelectionDialog.ignore_filters)
@@ -124,8 +127,11 @@ class ColumnSelectionDialog(wx.Dialog):
 
     def _on_ok(self, event):
         self.selected_columns = self.listbox.GetSelections()
-        if not self.selected_columns:
-            wx.MessageBox("Please select at least one column", "Invalid operation", wx.OK | wx.ICON_ERROR)
+        if self.min_count and len(self.selected_columns) < self.min_count:
+            wx.MessageBox(f"Please select at least {self.min_count} column{'s'[:self.min_count^1]}", "Invalid operation", wx.OK | wx.ICON_ERROR)
+            return
+        elif self.max_count and len(self.selected_columns) > self.max_count:
+            wx.MessageBox(f"Please select no more than {self.max_count} column{'s'[:self.max_count^1]}", "Invalid operation", wx.OK | wx.ICON_ERROR)
             return
         self.EndModal(wx.ID_OK)
 
@@ -163,7 +169,7 @@ class MatplotlibFrame(wx.Frame):
 
         sns.set_style("darkgrid")
         sns.set_palette("colorblind")
-        fig, ax = plt.subplots(figsize=(8, 5))
+        fig, ax = plt.subplots(figsize=(6, 4))
         canvas = FigureCanvas(self, -1, fig)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(canvas, 1, wx.EXPAND)
@@ -263,6 +269,7 @@ class SQLiteViewer(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_select_all, id=wx.ID_SELECTALL)
         self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_BIND_IDS["ID_DESCRIPTIVE_STATISTICS"])
         self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_BIND_IDS["ID_HISTOGRAM"])
+        self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_BIND_IDS["ID_SCATTER_PLOT"])
         self.Bind(wx.EVT_CLOSE, self.on_exit)
         self.list_ctrl.Bind(wx.EVT_LIST_ITEM_SELECTED, self.on_select_cell)
         self.list_ctrl.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.on_select_cell)
@@ -517,31 +524,37 @@ class SQLiteViewer(wx.Frame):
             if menu_id == self.CUSTOM_BIND_IDS["ID_DESCRIPTIVE_STATISTICS"]:
                 self.show_column_selection_dialog(callback=self.on_descriptive_statistics)
             elif menu_id == self.CUSTOM_BIND_IDS["ID_HISTOGRAM"]:
-                self.show_column_selection_dialog(callback=self.on_histogram, numerical_only=True)
+                self.show_column_selection_dialog(callback=self.on_histogram, valid_dtypes=["number", "datetime"])
             elif menu_id == self.CUSTOM_BIND_IDS["ID_SCATTER_PLOT"]:
-                self.show_column_selection_dialog(callback=self.scatter_plot)
+                self.show_column_selection_dialog(callback=self.on_scatter_plot, valid_dtypes=["number"], min_count=2, max_count=2)
             elif menu_id == self.CUSTOM_BIND_IDS["ID_CORRELATION_MATRIX"]:
-                self.show_column_selection_dialog(callback=self.correlation_matrix)
+                self.show_column_selection_dialog(callback=self.on_correlation_matrix)
             elif menu_id == self.CUSTOM_BIND_IDS["ID_BEST_FITTED_DISTRIBUTION"]:
-                self.show_column_selection_dialog(callback=self.best_fitted_distribution)
+                self.show_column_selection_dialog(callback=self.on_best_fitted_distribution)
             elif menu_id == self.CUSTOM_BIND_IDS["ID_REGRESSION_ANALYSIS"]:
-                self.show_column_selection_dialog(callback=self.regression_analysis)
+                self.show_column_selection_dialog(callback=self.on_regression_analysis)
             elif menu_id == self.CUSTOM_BIND_IDS["ID_ANOVA"]:
-                self.show_column_selection_dialog(callback=self.anova)
+                self.show_column_selection_dialog(callback=self.on_anova)
         else:
-            wx.MessageBox("Unable to perform operation, please load a database first", "Invalid operation", wx.OK | wx.ICON_ERROR)
+            wx.MessageBox("Unable to perform operation, please load a table first", "Invalid operation", wx.OK | wx.ICON_ERROR)
 
-    def show_column_selection_dialog(self, callback: callable, numerical_only: bool = False):
+    def show_column_selection_dialog(self, callback: callable, valid_dtypes: list | None = None, min_count: int = 1, max_count: int | None = None):
         """
         Shows a dialog to select columns for the specified data analysis
 
         :param callback: The function to call with the selected columns
-        :param numerical_only: Whether to only allow numerical and datetime columns to be selected
+        :param valid_dtypes: The valid data types for the columns to select
+        :param min_count: The minimum number of columns to select
+        :param max_count: The maximum number of columns to select
         """
         df = self.db.get_df(table_name=self.table_switcher.GetStringSelection())
-        columns = df.select_dtypes(include=["number", "datetime"]).columns.tolist() if numerical_only else df.columns.tolist()
+        columns = df.select_dtypes(include=valid_dtypes).columns.tolist() if valid_dtypes else df.columns.tolist()
         
-        column_dialog = ColumnSelectionDialog(parent=self, columns=columns)
+        if len(columns) < min_count:
+            wx.MessageBox(f"Unable to perform operation, please load a table with at least {min_count} valid column{'s'[:min_count^1]}", "Invalid operation", wx.OK | wx.ICON_ERROR)
+            return
+        
+        column_dialog = ColumnSelectionDialog(parent=self, columns=columns, min_count=max_count, max_count=max_count)
         if column_dialog.ShowModal() == wx.ID_OK:
             selected_columns = [columns[i] for i in column_dialog.selected_columns]
             if not column_dialog.ignore_filters:
@@ -550,7 +563,7 @@ class SQLiteViewer(wx.Frame):
 
     def on_descriptive_statistics(self, df: pd.DataFrame, columns: list):
         """
-        Shows descriptive statistics for the specified columns, this ignores any filter applied to the list control
+        Shows descriptive statistics for the specified columns
 
         :param df: The dataframe to analyze
         :param columns: The names of the columns to analyze as a list
@@ -560,7 +573,7 @@ class SQLiteViewer(wx.Frame):
 
     def on_histogram(self, df: pd.DataFrame, columns: list):
         """
-        Shows a histogram for the specified columns, this again ignores any filter applied to the list control
+        Shows a histogram for the specified columns
 
         :param df: The dataframe to plot
         :param columns: The names of the columns to plot as a list
@@ -572,6 +585,17 @@ class SQLiteViewer(wx.Frame):
         else:
             wx.MessageBox("Unable to plot a histogram for a mix of numerical and datetime columns", "Invalid operation", wx.OK | wx.ICON_ERROR)
    
+    def on_scatter_plot(self, df: pd.DataFrame, columns: list):
+        """
+        Shows a scatter plot for the specified column combinations
+
+        :param df: The dataframe to plot
+        :param columns: The names of the column combination to plot
+        """
+        frame = MatplotlibFrame(parent=self)
+        frame.Show()
+        frame.plot_scatter(df=df, column_combinations=[[columns[0], columns[1]]])
+
     def on_column_click(self, event):
         """
         Sorts the table by the clicked column toggling between ascending, descending and the original order
