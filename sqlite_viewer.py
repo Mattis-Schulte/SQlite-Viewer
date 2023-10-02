@@ -18,7 +18,7 @@ class DatabaseConnection:
     """
     def __init__(self, db_file: str):
         self.db_file = db_file
-        self.file_type = path.splitext(db_file)[1]
+        self.file_type = path.splitext(db_file)[1].lower()
 
     def get_table_or_sheet_names(self) -> list:
         """
@@ -100,13 +100,17 @@ class ColumnSelectionDialog(wx.Dialog):
     :param parent: The parent window
     :param columns: A list of columns to display in the listbox
     """
+    ignore_filters = True
+
     def __init__(self, parent: wx.Frame, columns: list):
-        super().__init__(parent, title="Select columns to analyze", size=(300, 215))
-        self.selected_columns = []
+        super().__init__(parent, title="Select columns to analyze", size=(300, 225))
 
         self.listbox = wx.ListBox(self, choices=columns, style=wx.LB_MULTIPLE)
+        self.ignore_filters_checkbox = wx.CheckBox(self, label="Ignore applied filters")
+        self.ignore_filters_checkbox.SetValue(ColumnSelectionDialog.ignore_filters)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self.listbox, 1, wx.EXPAND | wx.TOP | wx.LEFT | wx.RIGHT, 10)
+        sizer.Add(self.ignore_filters_checkbox, 0, wx.EXPAND | wx.TOP | wx.LEFT | wx.RIGHT, 10)
         sizer.Add(self.CreateButtonSizer(wx.OK | wx.CANCEL), flag=wx.ALIGN_CENTER | wx.ALL, border=15)
         self.SetSizer(sizer)
 
@@ -115,6 +119,7 @@ class ColumnSelectionDialog(wx.Dialog):
 
     def on_ok(self, event):
         self.selected_columns = self.listbox.GetSelections()
+        ColumnSelectionDialog.ignore_filters = self.ignore_filters_checkbox.GetValue()
         if not self.selected_columns:
             wx.MessageBox("Please select at least one column", "Invalid operation", wx.OK | wx.ICON_ERROR)
             return
@@ -150,14 +155,14 @@ class MatplotlibFrame(wx.Frame):
 
     def _plot(self, df: pd.DataFrame, graphs: list, plot_func: callable):
         num_plots = len(graphs)
-        num_cols = math.ceil(math.sqrt(num_plots))
-        num_rows = math.ceil(num_plots / num_cols)
+        num_plot_cols = math.ceil(math.sqrt(num_plots))
+        num_plot_rows = math.ceil(num_plots / num_plot_cols)
 
         plot_type = plot_func.__name__.replace("plot", "")
-        self.SetTitle(f"SQLite Viewer: Showing {plot_type} plot{'s'[:num_plots^1]} \"{', '.join([' / '.join(graph) if isinstance(graph, list) else graph for graph in graphs])}\"")
+        self.SetTitle(f"SQLite Viewer: Showing {plot_type}plot{'s'[:num_plots^1]} \"{', '.join([' / '.join(graph) if isinstance(graph, list) else graph for graph in graphs])}\"")
 
         sns.set_style("darkgrid")
-        fig, axes = plt.subplots(num_rows, num_cols, figsize=(num_cols * 5, num_rows * 4))
+        fig, axes = plt.subplots(num_plot_rows, num_plot_cols, figsize=(num_plot_cols * 5, num_plot_rows * 4))
         canvas = FigureCanvas(self, -1, fig)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(canvas, 1, wx.EXPAND)
@@ -168,13 +173,18 @@ class MatplotlibFrame(wx.Frame):
             df = df.sample(n=sample_size, random_state=1)
 
         for i, graph in enumerate(graphs):
-            # Calculate the axes to plot on so that the plots form a square grid if possible
-            ax = axes[i // num_cols, i % num_cols] if num_rows > 1 else axes[i % num_cols] if num_cols > 1 else axes
+            # Calculate the axes to plot on so that the plots form an evenly spaced grid
+            ax = axes[i // num_plot_cols, i % num_plot_cols] if num_plot_rows > 1 else axes[i % num_plot_cols] if num_plot_cols > 1 else axes
             if df_sampled:
                 ax.text(0.95, 0.95, f"Sampled {sample_size:,} rows", transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="right", bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
             if plot_type == "hist":
-                bins = min(len(df[graph].unique()), 200)
-                plot_func(data=df, x=graph, ax=ax, bins=bins)
+                # Determine whether to apply logarithmic scaling based on the interquartile range and the maximum value
+                max_val, quartile75, quartile25 = df[graph].max(), df[graph].quantile(0.75), df[graph].quantile(0.25)
+                if quartile75 - quartile25 > 1000 and max_val/quartile75 > 5:
+                    plot_func(data=df, x=graph, ax=ax, bins="auto", log_scale=True)
+                    ax.set_xlabel(f"{graph} (log scale)")
+                else:
+                    plot_func(data=df, x=graph, ax=ax, bins="auto")
             elif plot_type == "scatter":
                 plot_func(data=df, x=graph[0], y=graph[1], ax=ax)
             else:
@@ -531,6 +541,8 @@ class SQLiteViewer(wx.Frame):
         column_dialog = ColumnSelectionDialog(parent=self, columns=columns)
         if column_dialog.ShowModal() == wx.ID_OK:
             selected_columns = [columns[i] for i in column_dialog.selected_columns]
+            if not column_dialog.ignore_filters:
+                df = self.db.get_filtered_sorted_df(table_name=self.table_switcher.GetStringSelection(), sort_column=self.sort_column, sort_order=self.sort_order, search_query=self.search_query)
             callback(df=df[selected_columns], columns=selected_columns)
 
     def on_descriptive_statistics(self, df: pd.DataFrame, columns: list):
