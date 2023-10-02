@@ -175,12 +175,12 @@ class MatplotlibFrame(wx.Frame):
         
         # Combine the data from all the selected graphs and check if this combined data is skewed
         combined_data = pd.concat([df[graph] if isinstance(graph, str) else df[graph[0]] / df[graph[1]] for graph in graphs], axis=0)
-        skewed = bool(abs(combined_data.skew()) > 1) if combined_data.dtype.kind in "biufc" else False
+        log_scale = bool(abs(combined_data.skew()) > 2) if combined_data.dtype.kind in "biufc" else False
 
         for graph in graphs:
             if plot_type == "hist":
-                plot_func(data=df, x=graph, ax=ax, bins="auto", log_scale=skewed, label=f"{graph} (log scale)" if skewed else graph)
-                ax.set_xlabel(f"{graph} (log scale)" if skewed else graph)
+                plot_func(data=df, x=graph, ax=ax, bins="auto", log_scale=log_scale, label=f"{graph} (log scale)" if log_scale else graph)
+                ax.set_xlabel(f"{graph} (log scale)" if log_scale else graph)
             elif plot_type == "scatter":
                 plot_func(data=df, x=graph[0], y=graph[1], ax=ax, label=f"{graph[0]} / {graph[1]}")
             else:
