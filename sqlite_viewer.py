@@ -114,12 +114,16 @@ class ColumnSelectionDialog(wx.Dialog):
         sizer.Add(self.CreateButtonSizer(wx.OK | wx.CANCEL), flag=wx.ALIGN_CENTER | wx.ALL, border=15)
         self.SetSizer(sizer)
 
-        self.Bind(wx.EVT_BUTTON, self.on_ok, id=wx.ID_OK)
+        self.Bind(wx.EVT_CHECKBOX, self._on_checkbox, self.ignore_filters_checkbox)
+        self.Bind(wx.EVT_BUTTON, self._on_ok, id=wx.ID_OK)
         self.CenterOnParent()
 
-    def on_ok(self, event):
+    def _on_checkbox(self, event):
+        # Update the class variable so that the checkbox state is remembered
+        ColumnSelectionDialog.ignore_filters = self.ignore_filters_checkbox.IsChecked()
+
+    def _on_ok(self, event):
         self.selected_columns = self.listbox.GetSelections()
-        ColumnSelectionDialog.ignore_filters = self.ignore_filters_checkbox.GetValue()
         if not self.selected_columns:
             wx.MessageBox("Please select at least one column", "Invalid operation", wx.OK | wx.ICON_ERROR)
             return
