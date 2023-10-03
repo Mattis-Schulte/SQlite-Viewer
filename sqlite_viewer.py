@@ -348,6 +348,10 @@ class SQLiteViewer(wx.Frame):
         self.table_switcher.SetItems(table_names)
         self.table_switcher.SetSelection(0)
 
+        for child in self.GetChildren():
+            if isinstance(child, MatplotlibFrame):
+                child.Close()
+        
         self.column_attr = {}
         self.reset_state()
         self.load_table_data(table_name=table_names[0], page_size=self.items_per_page)
