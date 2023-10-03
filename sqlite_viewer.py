@@ -180,25 +180,32 @@ class MatplotlibFrame(wx.Frame):
             df = df.sample(n=sample_size, random_state=1)
         
         # Combine the data from all the selected graphs and check if this combined data is skewed
-        combined_data = pd.concat([df[graph] if isinstance(graph, str) else df[graph[0]] / df[graph[1]] for graph in graphs], axis=0)
-        log_scale = bool(abs(combined_data.skew()) > 2) if combined_data.dtype.kind in "biufc" else False
+        if plot_type == "hist":
+            hist_data = pd.concat([df[graph] for graph in graphs])
+            log_scale = bool(abs(hist_data.skew()) > 2) if hist_data.dtype.kind in "biufc" else False
+            ax.set_xlabel(f"{graphs[0] if len(graphs) == 1 else ' '}{' (log scale)' if log_scale else ''}")
+        elif plot_type == "scatter":
+            scatter_data_x = pd.concat([df[graph[0]] for graph in graphs])
+            scatter_data_y = pd.concat([df[graph[1]] for graph in graphs])
+            scatter_log_scale_x = bool(abs(scatter_data_x.skew()) > 2)
+            scatter_log_scale_y = bool(abs(scatter_data_y.skew()) > 2)
+            ax.set_xlabel(f"{', '.join([graph[0] for graph in graphs])}{' (log scale)' if scatter_log_scale_x else ''}")
+            ax.set_ylabel(f"{', '.join([graph[1] for graph in graphs])}{' (log scale)' if scatter_log_scale_y else ''}")
 
         for graph in graphs:
             if plot_type == "hist":
-                plot_func(data=df, x=graph, ax=ax, bins="auto", log_scale=log_scale, label=f"{graph} (log scale)" if log_scale else graph)
-                ax.set_xlabel(f"{graph} (log scale)" if log_scale else graph)
+                plot_func(data=df, x=graph, ax=ax, bins="auto", log_scale=log_scale, label=graph)
             elif plot_type == "scatter":
                 plot_func(data=df, x=graph[0], y=graph[1], ax=ax, label=f"{graph[0]} / {graph[1]}")
+                plt.xscale("log") if scatter_log_scale_x else None
+                plt.yscale("log") if scatter_log_scale_y else None
             else:
                 raise ValueError(f"Unsupported plot type: {plot_type}")
 
         if df_sampled:
             ax.text(0.95, 0.95, f"Sampled {sample_size:,} rows", transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="right", bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
 
-        if len(graphs) > 1:
-            ax.legend(loc="lower right")
-            ax.set_xlabel("")
-
+        ax.legend(loc="lower right") if len(graphs) > 1 else ax.legend().remove()
         plt.tight_layout()
         canvas.draw()
 
@@ -580,8 +587,8 @@ class SQLiteViewer(wx.Frame):
         """
         if not (any(df[graph].dtype != "datetime64[ns]" for graph in columns) and any(df[graph].dtype == "datetime64[ns]" for graph in columns)):
             frame = MatplotlibFrame(parent=self)
-            frame.Show()
             frame.plot_histogram(df=df, columns=columns)
+            frame.Show()
         else:
             wx.MessageBox("Unable to plot a histogram for a mix of numerical and datetime columns", "Invalid operation", wx.OK | wx.ICON_ERROR)
    
@@ -593,8 +600,8 @@ class SQLiteViewer(wx.Frame):
         :param columns: The names of the column combination to plot
         """
         frame = MatplotlibFrame(parent=self)
-        frame.Show()
         frame.plot_scatter(df=df, column_combinations=[[columns[0], columns[1]]])
+        frame.Show()
 
     def on_column_click(self, event):
         """
