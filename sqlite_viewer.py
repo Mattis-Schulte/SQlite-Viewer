@@ -318,9 +318,9 @@ class SQLiteViewer(wx.Frame):
         menu_bar.Append(select_menu, "Select")
         
         data_menu = wx.Menu()
-        data_menu.Append(self.CUSTOM_BIND_IDS["ID_DESCRIPTIVE_STATISTICS"], "Descriptive statistics", "Show descriptive statistics for a column")
-        data_menu.Append(self.CUSTOM_BIND_IDS["ID_HISTOGRAM"], "Histogram", "Show a histogram for a column")
-        data_menu.Append(self.CUSTOM_BIND_IDS["ID_SCATTER_PLOT"], "Scatter plot", "Show a scatter plot for two columns")
+        data_menu.Append(self.CUSTOM_BIND_IDS["ID_DESCRIPTIVE_STATISTICS"], "Descriptive statistics", "Show descriptive statistics for one or more columns")
+        data_menu.Append(self.CUSTOM_BIND_IDS["ID_HISTOGRAM"], "Histogram", "Show a histogram for one or more columns")
+        data_menu.Append(self.CUSTOM_BIND_IDS["ID_SCATTER_PLOT"], "Scatter plot", "Show a scatter plot between two columns")
         data_menu.Append(self.CUSTOM_BIND_IDS["ID_CORRELATION_MATRIX"], "Correlation matrix", "Show a correlation matrix for two or more columns")
         data_menu.Append(self.CUSTOM_BIND_IDS["ID_BEST_FITTED_DISTRIBUTION"], "Best fitted distribution", "Show the best fitted distribution for a column")
         data_menu.Append(self.CUSTOM_BIND_IDS["ID_REGRESSION_ANALYSIS"], "Regression analysis", "Perform a regression analysis for two or more columns")
