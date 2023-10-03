@@ -79,7 +79,7 @@ class DatabaseConnection:
         return list(pd.read_excel(self.db_file, sheet_name=None).keys())
 
     def _get_sqlite_dataframe(self, table_name: str) -> pd.DataFrame:
-        with sqlite3.connect(self.db_file, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES) as conn:
+        with sqlite3.connect(self.db_file, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES) as conn:
             df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
         return df
 
