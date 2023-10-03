@@ -10,7 +10,7 @@ import threading
 import wx
 
 
-class DatabaseConnection:
+class DataframeConnection:
     """
     A class to connect to a database file and retrieve table names and dataframes
 
@@ -89,6 +89,8 @@ class DatabaseConnection:
     def _get_csv_dataframe(self) -> pd.DataFrame:
         try:
             return pd.read_csv(self.db_file, on_bad_lines="error", encoding="utf-8", engine="python", parse_dates=True, date_parser=pd.to_datetime)
+        except pd.errors.EmptyDataError:
+            return pd.DataFrame()
         except (TypeError, ValueError):
             return pd.read_csv(self.db_file, sep=";", on_bad_lines="warn", encoding="utf-8", engine="python", parse_dates=True, date_parser=pd.to_datetime)
 
@@ -336,15 +338,15 @@ class SQLiteViewer(wx.Frame):
         :param filename: The path to the database file
         """
         try:
-            db = DatabaseConnection(db_file=filename)
+            db = DataframeConnection(db_file=filename)
             table_names = db.get_table_or_sheet_names()
             if not table_names:
                 wx.MessageBox("No tables found in database", "Error opening database", wx.OK | wx.ICON_ERROR)
                 return
             self.db = db
-        except pd.errors.DatabaseError as e:
+        except Exception as e:
             wx.MessageBox(f"Error opening database due to \n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
-            return
+            raise e
         self.table_switcher.SetItems(table_names)
         self.table_switcher.SetSelection(0)
 
@@ -378,12 +380,12 @@ class SQLiteViewer(wx.Frame):
                 rows = df.iloc[offset:offset+page_size].values.tolist()
                 total_rows = len(df.index)
                 self.list_ctrl.ShowSortIndicator(col=df.columns.tolist().index(sort_column), ascending=sort_order) if sort_column else self.list_ctrl.RemoveSortIndicator()
-            except pd.errors.DatabaseError as e:
+            except Exception as e:
                 wx.CallAfter(self.list_ctrl.ClearAll)
                 wx.CallAfter(self.next_page_button.Enable, False)
                 wx.CallAfter(wx.MessageBox, f"Error opening table \"{table_name}\" due to \n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
                 wx.CallAfter(self.SetStatusText, "Error opening table")
-                return
+                raise e
 
             if not rows:
                 wx.CallAfter(self.list_ctrl.ClearAll)
