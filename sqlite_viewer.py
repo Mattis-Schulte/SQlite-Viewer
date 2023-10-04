@@ -237,6 +237,7 @@ class SQLiteViewer(wx.Frame):
         self.sort_order = False
         self.search_query = None
         self.items_per_page = 250
+        self.list_ctrl_lock = threading.Lock()
         self.create_menu_bar()
         self.create_dashboard()
         self.SetMinSize((450, 350))
@@ -371,8 +372,6 @@ class SQLiteViewer(wx.Frame):
         :param search_query: The string to search for in the dataframe
         :param set_status: Whether to update the status bar text
         """
-        self.save_column_attr()
-
         def _worker():
             try:
                 df = self.db.get_filtered_sorted_df(table_name=table_name, sort_column=sort_column, sort_order=sort_order, search_query=search_query)
@@ -399,7 +398,7 @@ class SQLiteViewer(wx.Frame):
             wx.CallAfter(self.display_table, rows=rows, columns=df.columns.tolist())
             wx.CallAfter(self.SetStatusText, f"Showing table: {table_name}, rows: {total_rows:,}, page: {page_number:,} of {self.total_pages:,}") if set_status else None
 
-        thread = threading.Thread(target=_worker)
+        thread = threading.Thread(target=_worker, name="load_table_data", daemon=True)
         thread.start()
         wx.CallLater(600, lambda: self.progress_dialog(thread=thread) if thread.is_alive() else None)
 
@@ -425,16 +424,19 @@ class SQLiteViewer(wx.Frame):
         :param rows: The rows to display
         :param columns: The columns to display
         """
-        self.list_ctrl.ClearAll()
-        for i, column in enumerate(columns):
-            width = self.column_attr.get(self.table_switcher.GetStringSelection(), {}).get("col_widths", {}).get(column, self.list_ctrl.GetTextExtent(column)[0] + 40)
-            self.list_ctrl.InsertColumn(i, column, width=width)
-        for i, row in enumerate(rows):
-            self.list_ctrl.InsertItem(i, str(row[0]))
-            for j, cell in enumerate(row[1:], start=1):
-                self.list_ctrl.SetItem(i, j, str(cell))
-        if column_order := self.column_attr.get(self.table_switcher.GetStringSelection(), {}).get("col_order"):
-            self.list_ctrl.SetColumnsOrder(column_order)
+        with self.list_ctrl_lock:
+            self.save_column_attr()
+            self.list_ctrl.ClearAll()
+
+            for i, column in enumerate(columns):
+                width = self.column_attr.get(self.table_switcher.GetStringSelection(), {}).get("col_widths", {}).get(column, self.list_ctrl.GetTextExtent(column)[0] + 40)
+                self.list_ctrl.InsertColumn(i, column, width=width)
+            for i, row in enumerate(rows):
+                self.list_ctrl.InsertItem(i, str(row[0]))
+                for j, cell in enumerate(row[1:], start=1):
+                    self.list_ctrl.SetItem(i, j, str(cell))
+            if column_order := self.column_attr.get(self.table_switcher.GetStringSelection(), {}).get("col_order"):
+                self.list_ctrl.SetColumnsOrder(column_order)
         
     def progress_dialog(self, thread: threading.Thread):
         """
