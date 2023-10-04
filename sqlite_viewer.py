@@ -567,7 +567,7 @@ class SQLiteViewer(wx.Frame):
             wx.MessageBox(f"Unable to perform operation, please load a table with at least {min_count} valid column{'s'[:min_count^1]}", "Invalid operation", wx.OK | wx.ICON_ERROR)
             return
         
-        column_dialog = ColumnSelectionDialog(parent=self, columns=columns, min_count=max_count, max_count=max_count)
+        column_dialog = ColumnSelectionDialog(parent=self, columns=columns, min_count=min_count, max_count=max_count)
         if column_dialog.ShowModal() == wx.ID_OK:
             selected_columns = [columns[i] for i in column_dialog.selected_columns]
             if not column_dialog.ignore_filters:
