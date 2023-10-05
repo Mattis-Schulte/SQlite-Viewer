@@ -373,40 +373,41 @@ class SQLiteViewer(wx.Frame):
         :param set_status: Whether to update the status bar text
         """
         def _worker():
-            try:
-                df = self.db.get_filtered_sorted_df(table_name=table_name, sort_column=sort_column, sort_order=sort_order, search_query=search_query)
-                offset = (page_number - 1) * page_size
-                rows = df.iloc[offset:offset+page_size].values.tolist()
-                total_rows = len(df.index)
-                self.list_ctrl.ShowSortIndicator(col=df.columns.tolist().index(sort_column), ascending=sort_order) if sort_column else self.list_ctrl.RemoveSortIndicator()
-            except Exception as e:
+            with self.list_ctrl_lock:
+                self.save_column_attr(table_name=table_name)
                 wx.CallAfter(self.list_ctrl.ClearAll)
-                wx.CallAfter(self.next_page_button.Enable, False)
-                wx.CallAfter(wx.MessageBox, f"Error opening table \"{table_name}\" due to \n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
-                wx.CallAfter(self.SetStatusText, "Error opening table")
-                raise e
+                try:
+                    df = self.db.get_filtered_sorted_df(table_name=table_name, sort_column=sort_column, sort_order=sort_order, search_query=search_query)
+                    offset = (page_number - 1) * page_size
+                    rows = df.iloc[offset:offset+page_size].values.tolist()
+                    total_rows = len(df.index)
+                    self.list_ctrl.ShowSortIndicator(col=df.columns.tolist().index(sort_column), ascending=sort_order) if sort_column else self.list_ctrl.RemoveSortIndicator()
+                except Exception as e:
+                    wx.CallAfter(self.next_page_button.Enable, False)
+                    wx.CallAfter(wx.MessageBox, f"Error opening table \"{table_name}\" due to \n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+                    wx.CallAfter(self.SetStatusText, "Error opening table")
+                    raise e
 
-            if not rows:
-                wx.CallAfter(self.list_ctrl.ClearAll)
-                wx.CallAfter(self.next_page_button.Enable, False)
-                wx.CallAfter(wx.MessageBox, f"No data found in table \"{table_name}\"", "Error displaying table", wx.OK | wx.ICON_ERROR)
-                wx.CallAfter(self.SetStatusText, "No data found in table")
-                return
+                if not rows:
+                    wx.CallAfter(self.next_page_button.Enable, False)
+                    wx.CallAfter(wx.MessageBox, f"No data found in table \"{table_name}\"", "Error displaying table", wx.OK | wx.ICON_ERROR)
+                    wx.CallAfter(self.SetStatusText, "No data found in table")
+                    return
 
-            self.total_pages = math.ceil(total_rows / page_size)
-            self.next_page_button.Enable(self.total_pages > 1)
-            wx.CallAfter(self.display_table, rows=rows, columns=df.columns.tolist())
-            wx.CallAfter(self.SetStatusText, f"Showing table: {table_name}, rows: {total_rows:,}, page: {page_number:,} of {self.total_pages:,}") if set_status else None
+                self.total_pages = math.ceil(total_rows / page_size)
+                self.next_page_button.Enable(self.total_pages > 1)
+                wx.CallAfter(self.display_table, table_name=table_name, rows=rows, columns=df.columns.tolist())
+                wx.CallAfter(self.SetStatusText, f"Showing table: {table_name}, rows: {total_rows:,}, page: {page_number:,} of {self.total_pages:,}") if set_status else None
 
         thread = threading.Thread(target=_worker, name="load_table_data", daemon=True)
         thread.start()
         wx.CallLater(600, lambda: self.progress_dialog(thread=thread) if thread.is_alive() else None)
 
-    def save_column_attr(self):
+    def save_column_attr(self, table_name: str):
         """
         Gets and saves the current column order and widths for the selected table in self.column_attr
         """
-        previous_table, self.column_attr["current_table"] = self.column_attr.get("current_table"), self.table_switcher.GetStringSelection()
+        previous_table, self.column_attr["current_table"] = self.column_attr.get("current_table"), table_name
         if previous_table:
             self.column_attr[previous_table] = {
                 "col_order": self.list_ctrl.GetColumnsOrder() if self.list_ctrl.GetColumnCount() else None,
@@ -417,26 +418,22 @@ class SQLiteViewer(wx.Frame):
                 }
             }
 
-    def display_table(self, rows: list, columns: list): 
+    def display_table(self, table_name: str, rows: list, columns: list): 
         """
         Displays the specified rows and columns in the list control and applies the column order and widths if they exist in self.column_attr
 
         :param rows: The rows to display
         :param columns: The columns to display
         """
-        with self.list_ctrl_lock:
-            self.save_column_attr()
-            self.list_ctrl.ClearAll()
-
-            for i, column in enumerate(columns):
-                width = self.column_attr.get(self.table_switcher.GetStringSelection(), {}).get("col_widths", {}).get(column, self.list_ctrl.GetTextExtent(column)[0] + 40)
-                self.list_ctrl.InsertColumn(i, column, width=width)
-            for i, row in enumerate(rows):
-                self.list_ctrl.InsertItem(i, str(row[0]))
-                for j, cell in enumerate(row[1:], start=1):
-                    self.list_ctrl.SetItem(i, j, str(cell))
-            if column_order := self.column_attr.get(self.table_switcher.GetStringSelection(), {}).get("col_order"):
-                self.list_ctrl.SetColumnsOrder(column_order)
+        for i, column in enumerate(columns):
+            width = self.column_attr.get(table_name, {}).get("col_widths", {}).get(column, self.list_ctrl.GetTextExtent(column)[0] + 40)
+            self.list_ctrl.InsertColumn(i, column, width=width)
+        for i, row in enumerate(rows):
+            self.list_ctrl.InsertItem(i, str(row[0]))
+            for j, cell in enumerate(row[1:], start=1):
+                self.list_ctrl.SetItem(i, j, str(cell))
+        if column_order := self.column_attr.get(table_name, {}).get("col_order"):
+            self.list_ctrl.SetColumnsOrder(column_order)
         
     def progress_dialog(self, thread: threading.Thread):
         """
