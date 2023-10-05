@@ -406,6 +406,8 @@ class SQLiteViewer(wx.Frame):
     def save_column_attr(self, table_name: str):
         """
         Gets and saves the current column order and widths for the selected table in self.column_attr
+
+        :param table_name: The name of the table to save the column order and widths for
         """
         previous_table, self.column_attr["current_table"] = self.column_attr.get("current_table"), table_name
         if previous_table:
@@ -422,6 +424,7 @@ class SQLiteViewer(wx.Frame):
         """
         Displays the specified rows and columns in the list control and applies the column order and widths if they exist in self.column_attr
 
+        :param table_name: The name of the table to display
         :param rows: The rows to display
         :param columns: The columns to display
         """
@@ -522,7 +525,7 @@ class SQLiteViewer(wx.Frame):
         Changes the number of items that are displayed per page to the selected value
         """
         self.items_per_page = int(event.GetEventObject().FindItemById(event.GetId()).GetItemLabelText().split(" ")[0].replace(",", ""))
-        if self.db:
+        if self.db and self.list_ctrl.GetColumnCount():
             self.current_page = 1
             self.load_table_data(table_name=self.table_switcher.GetStringSelection(), page_number=self.current_page, page_size=self.items_per_page, sort_column=self.sort_column, sort_order=self.sort_order, search_query=self.search_query)
 
@@ -530,7 +533,7 @@ class SQLiteViewer(wx.Frame):
         """
         Wrapper function for the data analysis menu items
         """
-        if self.db:
+        if self.db and self.list_ctrl.GetColumnCount():
             menu_id = event.GetId()
 
             if menu_id == self.CUSTOM_BIND_IDS["ID_DESCRIPTIVE_STATISTICS"]:
@@ -548,7 +551,7 @@ class SQLiteViewer(wx.Frame):
             elif menu_id == self.CUSTOM_BIND_IDS["ID_ANOVA"]:
                 self.show_column_selection_dialog(callback=self.on_anova)
         else:
-            wx.MessageBox("Unable to perform operation, please load a table first", "Invalid operation", wx.OK | wx.ICON_ERROR)
+            wx.MessageBox("Unable to perform operation, please load a valid table first", "Invalid operation", wx.OK | wx.ICON_ERROR)
 
     def show_column_selection_dialog(self, callback: callable, valid_dtypes: list | None = None, min_count: int = 1, max_count: int | None = None):
         """
@@ -561,6 +564,7 @@ class SQLiteViewer(wx.Frame):
         """
         df = self.db.get_df(table_name=self.table_switcher.GetStringSelection())
         columns = df.select_dtypes(include=valid_dtypes).columns.tolist() if valid_dtypes else df.columns.tolist()
+        columns = [col for col in [self.list_ctrl.GetColumn(i).GetText() for i in self.list_ctrl.GetColumnsOrder()] if col in columns]
         
         if len(columns) < min_count:
             wx.MessageBox(f"Unable to perform operation, please load a table with at least {min_count} valid column{'s'[:min_count^1]}", "Invalid operation", wx.OK | wx.ICON_ERROR)
