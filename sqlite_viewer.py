@@ -444,6 +444,10 @@ class SQLiteViewer(wx.Frame):
         
         :param thread: The thread to check
         """
+        for _thread in threading.enumerate():
+            if _thread.name == thread.name and _thread.is_alive() and _thread != thread:
+                return
+
         progress_dialog = wx.ProgressDialog("Loading data", "Loading data, please wait...", maximum=100, parent=self, style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE)
         while thread.is_alive():
             progress_dialog.Pulse()
