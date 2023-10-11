@@ -375,7 +375,7 @@ class SQLiteViewer(wx.Frame):
         def _worker():
             with self.list_ctrl_lock:
                 self.save_column_attr(table_name=table_name)
-                wx.CallAfter(self.list_ctrl.ClearAll)
+
                 try:
                     df = self.db.get_filtered_sorted_df(table_name=table_name, sort_column=sort_column, sort_order=sort_order, search_query=search_query)
                     offset = (page_number - 1) * page_size
@@ -383,12 +383,14 @@ class SQLiteViewer(wx.Frame):
                     total_rows = len(df.index)
                     self.list_ctrl.ShowSortIndicator(col=df.columns.tolist().index(sort_column), ascending=sort_order) if sort_column else self.list_ctrl.RemoveSortIndicator()
                 except Exception as e:
+                    wx.CallAfter(self.list_ctrl.ClearAll)
                     wx.CallAfter(self.next_page_button.Enable, False)
                     wx.CallAfter(wx.MessageBox, f"Error opening table \"{table_name}\" due to \n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
                     wx.CallAfter(self.SetStatusText, "Error opening table")
                     raise e
 
                 if not rows:
+                    wx.CallAfter(self.list_ctrl.ClearAll)
                     wx.CallAfter(self.next_page_button.Enable, False)
                     wx.CallAfter(wx.MessageBox, f"No data found in table \"{table_name}\"", "Error displaying table", wx.OK | wx.ICON_ERROR)
                     wx.CallAfter(self.SetStatusText, "No data found in table")
@@ -428,6 +430,7 @@ class SQLiteViewer(wx.Frame):
         :param rows: The rows to display
         :param columns: The columns to display
         """
+        self.list_ctrl.ClearAll()
         for i, column in enumerate(columns):
             width = self.column_attr.get(table_name, {}).get("col_widths", {}).get(column, self.list_ctrl.GetTextExtent(column)[0] + 40)
             self.list_ctrl.InsertColumn(i, column, width=width)
