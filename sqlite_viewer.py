@@ -570,7 +570,7 @@ class SQLiteViewer(wx.Frame):
         :param max_count: The maximum number of columns to select
         """
         df = self.db.get_df(table_name=self.table_switcher.GetStringSelection())
-        columns = df.select_dtypes(include=valid_dtypes).columns.tolist() if valid_dtypes else df.columns.tolist()
+        columns = [col for col in df.select_dtypes(include=valid_dtypes).columns.tolist() if df[col].isna().sum() != len(df)] if valid_dtypes else df.columns.tolist()
         columns = [col for col in [self.list_ctrl.GetColumn(i).GetText() for i in self.list_ctrl.GetColumnsOrder()] if col in columns]
         
         if len(columns) < min_count:
@@ -583,6 +583,7 @@ class SQLiteViewer(wx.Frame):
             if not column_dialog.ignore_filters:
                 df = self.db.get_filtered_sorted_df(table_name=self.table_switcher.GetStringSelection(), sort_column=self.sort_column, sort_order=self.sort_order, search_query=self.search_query)
             callback(df=df[selected_columns], columns=selected_columns)
+        column_dialog.Destroy()
 
     def on_descriptive_statistics(self, df: pd.DataFrame, columns: list):
         """
