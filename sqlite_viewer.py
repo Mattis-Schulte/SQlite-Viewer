@@ -53,7 +53,7 @@ class DataframeConnection:
             raise ValueError(f"Unsupported file type: {self.file_type}")
     
     @functools.lru_cache(maxsize=1)
-    def get_filtered_sorted_df(self, table_name: str = None, sort_column: str = None, sort_order: bool = False, search_query: str = None) -> pd.DataFrame:
+    def get_filtered_sorted_df(self, table_name: str, sort_column: str | None = None, sort_order: bool = False, search_query: str | None = None) -> pd.DataFrame:
         """
         Gets a filtered and sorted dataframe of the data in the specified table or sheet
 
@@ -231,7 +231,7 @@ class SQLiteViewer(wx.Frame):
     def __init__(self):
         super().__init__(None, title="SQLite Viewer: No database loaded", size=(900, 500))
         self.db = None
-        self.current_page = None
+        self.current_page = 1
         self.total_pages = 0
         self.sort_column = None
         self.sort_order = False
@@ -360,7 +360,7 @@ class SQLiteViewer(wx.Frame):
         self.load_table_data(table_name=table_names[0], page_size=self.items_per_page)
         self.SetTitle(f"SQLite Viewer: Showing database \"{path.basename(filename)}\"")
 
-    def load_table_data(self, table_name: str, page_number: int = 1, page_size: int = 250, sort_column: str = None, sort_order: bool = False, search_query: str = None, set_status: bool = True):
+    def load_table_data(self, table_name: str, page_number: int = 1, page_size: int = 250, sort_column: str | None = None, sort_order: bool = False, search_query: str | None = None, set_status: bool = True):
         """
         Prepares the dataframes for the specified table and loads the first page, for performance reasons within a separate thread
 
@@ -368,7 +368,7 @@ class SQLiteViewer(wx.Frame):
         :param page_number: The page number to load
         :param page_size: The number of rows to load per page
         :param sort_column: The name of the column to sort by
-        :param sort_order: The order to sort by, True for ascending, False for descending
+        :param sort_order: The order to sort by, True for ascending, False for descending (ignored if sort_column is None)
         :param search_query: The string to search for in the dataframe
         :param set_status: Whether to update the status bar text
         """
