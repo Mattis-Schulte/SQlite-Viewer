@@ -230,10 +230,10 @@ class SQLiteViewer(wx.Frame):
         "ID_DESCRIPTIVE_STATISTICS": 1004,
         "ID_HISTOGRAM": 1005,
         "ID_SCATTER_PLOT": 1006,
-        "ID_ANOVA": 1007,
-        "ID_REGRESSION_ANALYSIS": 1008,
-        "ID_CORRELATION_MATRIX": 1009,
-        "ID_BEST_FITTED_DISTRIBUTION": 1010
+        "ID_CORRELATION_MATRIX": 1007,
+        "ID_BEST_FITTED_DISTRIBUTION": 1008,
+        "ID_REGRESSION_ANALYSIS": 1009,
+        "ID_ANOVA": 1010
     }
 
     def __init__(self):
@@ -333,7 +333,7 @@ class SQLiteViewer(wx.Frame):
         data_menu.Append(self.CUSTOM_BIND_IDS["ID_DESCRIPTIVE_STATISTICS"], "Descriptive statistics", "Show descriptive statistics for one or more columns")
         data_menu.Append(self.CUSTOM_BIND_IDS["ID_HISTOGRAM"], "Histogram", "Show a histogram for one or more columns")
         data_menu.Append(self.CUSTOM_BIND_IDS["ID_SCATTER_PLOT"], "Scatter plot", "Show a scatter plot for two columns")
-        data_menu.Append(self.CUSTOM_BIND_IDS["ID_CORRELATION_MATRIX"], "Correlation matrix", "Show a correlation matrix for two or more columns")
+        data_menu.Append(self.CUSTOM_BIND_IDS["ID_CORRELATION_MATRIX"], "Correlation matrix", "Show a Pearson correlation matrix for two or more columns")
         data_menu.Append(self.CUSTOM_BIND_IDS["ID_BEST_FITTED_DISTRIBUTION"], "Best fitted distribution", "Show the best fitted distribution for a column")
         data_menu.Append(self.CUSTOM_BIND_IDS["ID_REGRESSION_ANALYSIS"], "Regression analysis", "Perform a regression analysis for two or more columns")
         data_menu.Append(self.CUSTOM_BIND_IDS["ID_ANOVA"], "ANOVA test", "Perform an ANOVA test for two or more columns")
