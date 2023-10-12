@@ -154,20 +154,28 @@ class MatplotlibFrame(wx.Frame):
         :param df: The dataframe to plot
         :param columns: The names of the columns to plot as a list
         """
-        self._plot(df=df, graphs=columns, plot_func=sns.histplot)
+        self._plot(df=df, columns=columns, plot_func="histogram")
 
     def plot_scatter(self, df: pd.DataFrame, column_combinations: list):
         """
         Plots a scatter plot for the specified column combinations
 
         :param df: The dataframe to plot
-        :param column_combinations: The column combinations to plot as a list of lists with the inner list containing two column names
+        :param column_combinations: The column combinations to plot as a nested list with the inner lists containing a pair of columns
         """
-        self._plot(df=df, graphs=column_combinations, plot_func=sns.scatterplot)
+        self._plot(df=df, columns=column_combinations, plot_func="scatterplot")
 
-    def _plot(self, df: pd.DataFrame, graphs: list, plot_func: callable):
-        plot_type = plot_func.__name__.replace("plot", "")
-        self.SetTitle(f"SQLite Viewer: Showing {plot_type}plot{'s'[:len(graphs)^1]} \"{', '.join([' / '.join(graph) if isinstance(graph, list) else graph for graph in graphs])}\"")
+    def plot_correlation_matrix(self, df: pd.DataFrame, columns: list):
+        """
+        Plots a correlation matrix for the specified columns
+
+        :param df: The dataframe to plot
+        :param columns: The names of the columns to plot as a list
+        """
+        self._plot(df=df, columns=columns, plot_func="correlation matrix")
+
+    def _plot(self, df: pd.DataFrame, columns: list, plot_func: str):
+        self.SetTitle(f"SQLite Viewer: Showing {plot_func} \"{', '.join([' / '.join(graph) if isinstance(graph, list) else graph for graph in columns])}\"")
 
         sns.set_style("darkgrid")
         sns.set_palette("colorblind")
@@ -178,36 +186,36 @@ class MatplotlibFrame(wx.Frame):
         self.SetSizerAndFit(sizer)
 
         # Sample the dataframe if it is too large to plot
-        if df_sampled := len(df) > (sample_size := 250_000):
+        if len(df) > (sample_size := 250_000):
             df = df.sample(n=sample_size, random_state=1)
+            ax.text(0.95, 0.95, f"Sampled {sample_size:,} rows", transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="right", bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
         
-        # Combine the data from all the selected graphs and check if this combined data is skewed
-        if plot_type == "hist":
-            hist_data = pd.concat([df[graph] for graph in graphs])
+        # Plot the data and apply a log scale if the data is skewed
+        if plot_func == "histogram":
+            hist_data = pd.concat([df[graph] for graph in columns])
             log_scale = bool(abs(hist_data.skew()) > 2) if hist_data.dtype.kind in "biufc" else False
-            ax.set_xlabel(f"{graphs[0] if len(graphs) == 1 else ' '}{' (log scale)' if log_scale else ''}")
-        elif plot_type == "scatter":
-            scatter_data_x = pd.concat([df[graph[0]] for graph in graphs])
-            scatter_data_y = pd.concat([df[graph[1]] for graph in graphs])
+            ax.set_xlabel(f"{columns[0] if len(columns) == 1 else ' '}{' (log scale)' if log_scale else ''}")
+            for graph in columns:
+                sns.histplot(data=df, x=graph, ax=ax, bins="auto", log_scale=log_scale, label=graph)
+        elif plot_func == "scatterplot":
+            scatter_data_x = pd.concat([df[graph[0]] for graph in columns])
+            scatter_data_y = pd.concat([df[graph[1]] for graph in columns])
             scatter_log_scale_x = bool(abs(scatter_data_x.skew()) > 2)
             scatter_log_scale_y = bool(abs(scatter_data_y.skew()) > 2)
-            ax.set_xlabel(f"{', '.join([graph[0] for graph in graphs])}{' (log scale)' if scatter_log_scale_x else ''}")
-            ax.set_ylabel(f"{', '.join([graph[1] for graph in graphs])}{' (log scale)' if scatter_log_scale_y else ''}")
-
-        for graph in graphs:
-            if plot_type == "hist":
-                plot_func(data=df, x=graph, ax=ax, bins="auto", log_scale=log_scale, label=graph)
-            elif plot_type == "scatter":
-                plot_func(data=df, x=graph[0], y=graph[1], ax=ax, label=f"{graph[0]} / {graph[1]}")
+            ax.set_xlabel(f"{', '.join([graph[0] for graph in columns])}{' (log scale)' if scatter_log_scale_x else ''}")
+            ax.set_ylabel(f"{', '.join([graph[1] for graph in columns])}{' (log scale)' if scatter_log_scale_y else ''}")
+            for graph in columns:
+                sns.scatterplot(data=df, x=graph[0], y=graph[1], ax=ax, label=f"{graph[0]} / {graph[1]}")
                 plt.xscale("log") if scatter_log_scale_x else None
                 plt.yscale("log") if scatter_log_scale_y else None
-            else:
-                raise ValueError(f"Unsupported plot type: {plot_type}")
+        elif plot_func == "correlation matrix":
+            sns.heatmap(data=df[columns].corr(numeric_only=False), annot=True, fmt=".2f", ax=ax)
+        else:
+            raise ValueError(f"Unsupported plot type: {plot_func}")
 
-        if df_sampled:
-            ax.text(0.95, 0.95, f"Sampled {sample_size:,} rows", transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="right", bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
+        if plot_func != "correlation matrix":
+            ax.legend(loc="lower right") if len(columns) > 1 else ax.legend().remove()
 
-        ax.legend(loc="lower right") if len(graphs) > 1 else ax.legend().remove()
         plt.tight_layout()
         canvas.draw()
 
@@ -280,6 +288,7 @@ class SQLiteViewer(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_BIND_IDS["ID_DESCRIPTIVE_STATISTICS"])
         self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_BIND_IDS["ID_HISTOGRAM"])
         self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_BIND_IDS["ID_SCATTER_PLOT"])
+        self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_BIND_IDS["ID_CORRELATION_MATRIX"])
         self.Bind(wx.EVT_CLOSE, self.on_exit)
         self.list_ctrl.Bind(wx.EVT_LIST_ITEM_SELECTED, self.on_select_cell)
         self.list_ctrl.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.on_select_cell)
@@ -323,7 +332,7 @@ class SQLiteViewer(wx.Frame):
         data_menu = wx.Menu()
         data_menu.Append(self.CUSTOM_BIND_IDS["ID_DESCRIPTIVE_STATISTICS"], "Descriptive statistics", "Show descriptive statistics for one or more columns")
         data_menu.Append(self.CUSTOM_BIND_IDS["ID_HISTOGRAM"], "Histogram", "Show a histogram for one or more columns")
-        data_menu.Append(self.CUSTOM_BIND_IDS["ID_SCATTER_PLOT"], "Scatter plot", "Show a scatter plot between two columns")
+        data_menu.Append(self.CUSTOM_BIND_IDS["ID_SCATTER_PLOT"], "Scatter plot", "Show a scatter plot for two columns")
         data_menu.Append(self.CUSTOM_BIND_IDS["ID_CORRELATION_MATRIX"], "Correlation matrix", "Show a correlation matrix for two or more columns")
         data_menu.Append(self.CUSTOM_BIND_IDS["ID_BEST_FITTED_DISTRIBUTION"], "Best fitted distribution", "Show the best fitted distribution for a column")
         data_menu.Append(self.CUSTOM_BIND_IDS["ID_REGRESSION_ANALYSIS"], "Regression analysis", "Perform a regression analysis for two or more columns")
@@ -550,7 +559,7 @@ class SQLiteViewer(wx.Frame):
             elif menu_id == self.CUSTOM_BIND_IDS["ID_SCATTER_PLOT"]:
                 self.show_column_selection_dialog(callback=self.on_scatter_plot, valid_dtypes=["number"], min_count=2, max_count=2)
             elif menu_id == self.CUSTOM_BIND_IDS["ID_CORRELATION_MATRIX"]:
-                self.show_column_selection_dialog(callback=self.on_correlation_matrix)
+                self.show_column_selection_dialog(callback=self.on_correlation_matrix, valid_dtypes=["number", "datetime"], min_count=2)
             elif menu_id == self.CUSTOM_BIND_IDS["ID_BEST_FITTED_DISTRIBUTION"]:
                 self.show_column_selection_dialog(callback=self.on_best_fitted_distribution)
             elif menu_id == self.CUSTOM_BIND_IDS["ID_REGRESSION_ANALYSIS"]:
@@ -618,6 +627,17 @@ class SQLiteViewer(wx.Frame):
         """
         frame = MatplotlibFrame(parent=self)
         frame.plot_scatter(df=df, column_combinations=[[columns[0], columns[1]]])
+        frame.Show()
+
+    def on_correlation_matrix(self, df: pd.DataFrame, columns: list):
+        """
+        Shows a correlation matrix for the specified columns
+
+        :param df: The dataframe to analyze
+        :param columns: The names of the columns to analyze as a list
+        """
+        frame = MatplotlibFrame(parent=self)
+        frame.plot_correlation_matrix(df=df, columns=columns)
         frame.Show()
 
     def on_column_click(self, event):
