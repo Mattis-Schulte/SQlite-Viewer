@@ -1,12 +1,14 @@
 import functools
-import math
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigureCanvas
+import numpy as np
 import os.path as path
 import pandas as pd
 import seaborn as sns
+import scipy.stats as st
 import sqlite3
 import threading
+import warnings
 import wx
 
 
@@ -147,14 +149,67 @@ class MatplotlibFrame(wx.Frame):
     def __init__(self, parent):
         super().__init__(parent)
 
-    def plot_histogram(self, df: pd.DataFrame, columns: list):
-        """
-        Plots a histogram for the specified columns
+    def _configure_plot(self, title):
+        sns.set_style("darkgrid")
+        sns.set_palette("colorblind")
+        fig, ax = plt.subplots(figsize=(6, 4))
+        canvas = FigureCanvas(self, -1, fig)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(canvas, 1, wx.EXPAND)
+        self.SetSizerAndFit(sizer)
+        self.SetTitle(f"SQLite Viewer: Showing {title}")
+        return fig, ax
 
-        :param df: The dataframe to plot
-        :param columns: The names of the columns to plot as a list
+    def _sample_data(self, df, sample_size, ax):
+        if len(df) > sample_size:
+            df = df.sample(n=sample_size, random_state=1)
+            ax.text(0.95, 0.95, f"Sampled {sample_size:,} rows", 
+                    transform=ax.transAxes, fontsize=12, 
+                    verticalalignment="top", horizontalalignment="right", 
+                    bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
+        return df
+    
+    def _draw_plot(self, fig, ax):
+        plt.tight_layout()
+        canvas = FigureCanvas(self, -1, fig)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(canvas, 1, wx.EXPAND)
+        self.SetSizerAndFit(sizer)
+        canvas.draw()
+
+    def plot_histogram(self, df: pd.DataFrame, columns: list, dist_names: list[str, ...] | None = None, params: list[tuple, ...] | None = None):
         """
-        self._plot(df=df, columns=columns, plot_func="histogram")
+        Plots a histogram of the specified columns and optionally the best fitted distribution too
+
+        :param df: The dataframe to plot the histogram for
+        :param columns: The columns to plot the histogram for
+        :param dist_names: The names of the distributions to plot
+        :param params: The parameters of the distributions to plot
+        """
+        title = f"{'Best Fitted Distribution' if dist_names else 'Histogram'} \"{', '.join(columns)}\""
+        fig, ax = self._configure_plot(title)
+        df = self._sample_data(df, 250_000, ax)
+        hist_data = pd.concat([df[graph] for graph in columns])
+        log_scale = bool(abs(hist_data.skew()) > 2) if hist_data.dtype.kind in "biufc" else False
+        ax.set_xlabel(f"{columns[0] if len(columns) == 1 else ' '}{' (log scale)' if log_scale else ''}")
+        for i, graph in enumerate(columns):
+            sns.histplot(data=df, x=graph, ax=ax, stat="density", bins="auto", log_scale=log_scale, label=graph)
+            if dist_names and params and i < min(len(dist_names), len(params)):
+                param_names = [name.strip() for name in getattr(st, dist_names[i]).shapes.split(",")] if getattr(st, dist_names[i]).shapes else []
+                param_names += ['loc'] if dist_names[i] in st._discrete_distns._distn_names else ['loc', 'scale']
+                param_str = ", ".join([f"{param_name}: {param:.2f}" for param_name, param in zip(param_names, params[i])])
+
+                plt.autoscale(False)
+                if log_scale:
+                    shift = abs(df[graph].min()) + 1 if df[graph].min() < 0 else 0
+                    x = np.logspace(np.log10(shift + df[graph].min()), np.log10(shift + df[graph].max()), 1000)
+                else:
+                    x = np.linspace(df[graph].min(), df[graph].max(), 1000)
+                pdf = getattr(st, dist_names[i]).pdf(x, *params[i])
+                line_color = sns.color_palette("dark", n_colors=len(columns))[i]
+                ax.plot(x, pdf, label=f"{dist_names[i]} ({param_str})", color=line_color, linestyle="dashed")
+        ax.legend(loc="lower right") if len(ax.get_legend_handles_labels()[0]) > 1 else ax.legend().remove()
+        self._draw_plot(fig, ax)
 
     def plot_scatter(self, df: pd.DataFrame, column_combinations: list):
         """
@@ -163,7 +218,21 @@ class MatplotlibFrame(wx.Frame):
         :param df: The dataframe to plot
         :param column_combinations: The column combinations to plot as a nested list with the inner lists containing a pair of columns
         """
-        self._plot(df=df, columns=column_combinations, plot_func="scatterplot")
+        title = f"Scatter Plot \"{', '.join([' / '.join(graph) for graph in column_combinations])}\""
+        fig, ax = self._configure_plot(title)
+        df = self._sample_data(df, 250_000, ax)
+        scatter_data_x = pd.concat([df[graph[0]] for graph in column_combinations])
+        scatter_data_y = pd.concat([df[graph[1]] for graph in column_combinations])
+        scatter_log_scale_x = bool(abs(scatter_data_x.skew()) > 2)
+        scatter_log_scale_y = bool(abs(scatter_data_y.skew()) > 2)
+        ax.set_xlabel(f"{', '.join([graph[0] for graph in column_combinations])}{' (log scale)' if scatter_log_scale_x else ''}")
+        ax.set_ylabel(f"{', '.join([graph[1] for graph in column_combinations])}{' (log scale)' if scatter_log_scale_y else ''}")
+        for graph in column_combinations:
+            sns.scatterplot(data=df, x=graph[0], y=graph[1], ax=ax, label=f"{graph[0]} / {graph[1]}")
+        plt.xscale("log") if scatter_log_scale_x else None
+        plt.yscale("log") if scatter_log_scale_y else None
+        ax.legend(loc="lower right") if len(ax.get_legend_handles_labels()[0]) > 1 else ax.legend().remove()
+        self._draw_plot(fig, ax)
 
     def plot_correlation_matrix(self, df: pd.DataFrame, columns: list):
         """
@@ -172,52 +241,11 @@ class MatplotlibFrame(wx.Frame):
         :param df: The dataframe to plot
         :param columns: The names of the columns to plot as a list
         """
-        self._plot(df=df, columns=columns, plot_func="correlation matrix")
-
-    def _plot(self, df: pd.DataFrame, columns: list, plot_func: str):
-        self.SetTitle(f"SQLite Viewer: Showing {plot_func} \"{', '.join([' / '.join(graph) if isinstance(graph, list) else graph for graph in columns])}\"")
-
-        sns.set_style("darkgrid")
-        sns.set_palette("colorblind")
-        fig, ax = plt.subplots(figsize=(6, 4))
-        canvas = FigureCanvas(self, -1, fig)
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(canvas, 1, wx.EXPAND)
-        self.SetSizerAndFit(sizer)
-
-        # Sample the dataframe if it is too large to plot
-        if len(df) > (sample_size := 250_000):
-            df = df.sample(n=sample_size, random_state=1)
-            ax.text(0.95, 0.95, f"Sampled {sample_size:,} rows", transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="right", bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
-        
-        # Plot the data and apply a log scale if the data is skewed
-        if plot_func == "histogram":
-            hist_data = pd.concat([df[graph] for graph in columns])
-            log_scale = bool(abs(hist_data.skew()) > 2) if hist_data.dtype.kind in "biufc" else False
-            ax.set_xlabel(f"{columns[0] if len(columns) == 1 else ' '}{' (log scale)' if log_scale else ''}")
-            for graph in columns:
-                sns.histplot(data=df, x=graph, ax=ax, bins="auto", log_scale=log_scale, label=graph)
-        elif plot_func == "scatterplot":
-            scatter_data_x = pd.concat([df[graph[0]] for graph in columns])
-            scatter_data_y = pd.concat([df[graph[1]] for graph in columns])
-            scatter_log_scale_x = bool(abs(scatter_data_x.skew()) > 2)
-            scatter_log_scale_y = bool(abs(scatter_data_y.skew()) > 2)
-            ax.set_xlabel(f"{', '.join([graph[0] for graph in columns])}{' (log scale)' if scatter_log_scale_x else ''}")
-            ax.set_ylabel(f"{', '.join([graph[1] for graph in columns])}{' (log scale)' if scatter_log_scale_y else ''}")
-            for graph in columns:
-                sns.scatterplot(data=df, x=graph[0], y=graph[1], ax=ax, label=f"{graph[0]} / {graph[1]}")
-                plt.xscale("log") if scatter_log_scale_x else None
-                plt.yscale("log") if scatter_log_scale_y else None
-        elif plot_func == "correlation matrix":
-            sns.heatmap(data=df[columns].corr(numeric_only=False), annot=True, fmt=".2f", ax=ax)
-        else:
-            raise ValueError(f"Unsupported plot type: {plot_func}")
-
-        if plot_func != "correlation matrix":
-            ax.legend(loc="lower right") if len(columns) > 1 else ax.legend().remove()
-
-        plt.tight_layout()
-        canvas.draw()
+        title = f"Correlation Matrix \"{', '.join(columns)}\""
+        fig, ax = self._configure_plot(title)
+        df = self._sample_data(df, 250_000, ax)
+        sns.heatmap(data=df[columns].corr(numeric_only=False), annot=True, fmt=".2f", ax=ax)
+        self._draw_plot(fig, ax)
 
 
 class SQLiteViewer(wx.Frame):
@@ -238,6 +266,7 @@ class SQLiteViewer(wx.Frame):
 
     def __init__(self):
         super().__init__(None, title="SQLite Viewer: No database loaded", size=(900, 500))
+        warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy")
         self.db = None
         self.current_page = 1
         self.total_pages = 0
@@ -289,6 +318,7 @@ class SQLiteViewer(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_BIND_IDS["ID_HISTOGRAM"])
         self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_BIND_IDS["ID_SCATTER_PLOT"])
         self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_BIND_IDS["ID_CORRELATION_MATRIX"])
+        self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_BIND_IDS["ID_BEST_FITTED_DISTRIBUTION"])
         self.Bind(wx.EVT_CLOSE, self.on_exit)
         self.list_ctrl.Bind(wx.EVT_LIST_ITEM_SELECTED, self.on_select_cell)
         self.list_ctrl.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.on_select_cell)
@@ -308,7 +338,7 @@ class SQLiteViewer(wx.Frame):
         menu_bar.Append(file_menu, "File")
 
         view_menu, items_per_page_submenu = wx.Menu(), wx.Menu()
-        items_per_page_options = [5, 10, 25, 50, 100, 250, 500, 1000]
+        items_per_page_options = (5, 10, 25, 50, 100, 250, 500, 1000)
 
         for items_per_page in items_per_page_options:
             menu_item = items_per_page_submenu.AppendRadioItem(-1, f"{items_per_page:,} items per page", help=f"Show {items_per_page:,} items per page")
@@ -355,7 +385,7 @@ class SQLiteViewer(wx.Frame):
                 return
             self.db = db
         except Exception as e:
-            wx.MessageBox(f"Error opening database due to \n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+            wx.MessageBox(f"Error opening database due to:\n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
             raise e
         self.table_switcher.SetItems(table_names)
         self.table_switcher.SetSelection(0)
@@ -394,7 +424,7 @@ class SQLiteViewer(wx.Frame):
                 except Exception as e:
                     wx.CallAfter(self.list_ctrl.ClearAll)
                     wx.CallAfter(self.next_page_button.Enable, False)
-                    wx.CallAfter(wx.MessageBox, f"Error opening table \"{table_name}\" due to \n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+                    wx.CallAfter(wx.MessageBox, f"Error opening table \"{table_name}\" due to:\n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
                     wx.CallAfter(self.SetStatusText, "Error opening table")
                     raise e
 
@@ -405,7 +435,7 @@ class SQLiteViewer(wx.Frame):
                     wx.CallAfter(self.SetStatusText, "No data found in table")
                     return
 
-                self.total_pages = math.ceil(total_rows / page_size)
+                self.total_pages = int(np.ceil(total_rows / page_size))
                 self.next_page_button.Enable(self.total_pages > 1)
                 wx.CallAfter(self.display_table, table_name=table_name, rows=rows, columns=df.columns.tolist())
                 wx.CallAfter(self.SetStatusText, f"Showing table: {table_name}, rows: {total_rows:,}, page: {page_number:,} of {self.total_pages:,}") if set_status else None
@@ -460,7 +490,7 @@ class SQLiteViewer(wx.Frame):
             if _thread.name == thread.name and _thread.is_alive() and _thread != thread:
                 return
 
-        progress_dialog = wx.ProgressDialog("Loading data", "Loading data, please wait...", maximum=100, parent=self, style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE)
+        progress_dialog = wx.ProgressDialog("Processing data", "Processing data, please wait...", maximum=100, parent=self, style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE)
         while thread.is_alive():
             progress_dialog.Pulse()
         progress_dialog.Destroy()
@@ -557,11 +587,11 @@ class SQLiteViewer(wx.Frame):
             elif menu_id == self.CUSTOM_BIND_IDS["ID_HISTOGRAM"]:
                 self.show_column_selection_dialog(callback=self.on_histogram, valid_dtypes=["number", "datetime"])
             elif menu_id == self.CUSTOM_BIND_IDS["ID_SCATTER_PLOT"]:
-                self.show_column_selection_dialog(callback=self.on_scatter_plot, valid_dtypes=["number"], min_count=2, max_count=2)
+                self.show_column_selection_dialog(callback=self.on_scatter_plot, valid_dtypes=["number"], min_column_count=2, max_column_count=2)
             elif menu_id == self.CUSTOM_BIND_IDS["ID_CORRELATION_MATRIX"]:
-                self.show_column_selection_dialog(callback=self.on_correlation_matrix, valid_dtypes=["number", "datetime"], min_count=2)
+                self.show_column_selection_dialog(callback=self.on_correlation_matrix, valid_dtypes=["number", "datetime"], min_column_count=2, min_data_count=10)
             elif menu_id == self.CUSTOM_BIND_IDS["ID_BEST_FITTED_DISTRIBUTION"]:
-                self.show_column_selection_dialog(callback=self.on_best_fitted_distribution)
+                self.show_column_selection_dialog(callback=self.on_best_fitted_distribution, valid_dtypes=["number"], min_column_count=1, max_column_count=1, min_data_count=10)
             elif menu_id == self.CUSTOM_BIND_IDS["ID_REGRESSION_ANALYSIS"]:
                 self.show_column_selection_dialog(callback=self.on_regression_analysis)
             elif menu_id == self.CUSTOM_BIND_IDS["ID_ANOVA"]:
@@ -569,7 +599,7 @@ class SQLiteViewer(wx.Frame):
         else:
             wx.MessageBox("Unable to perform operation, please load a valid table first", "Invalid operation", wx.OK | wx.ICON_ERROR)
 
-    def show_column_selection_dialog(self, callback: callable, valid_dtypes: list | None = None, min_count: int = 1, max_count: int | None = None):
+    def show_column_selection_dialog(self, callback: callable, valid_dtypes: list | None = None, min_column_count: int = 1, max_column_count: int | None = None, min_data_count: int = 1):
         """
         Shows a dialog to select columns for the specified data analysis
 
@@ -582,15 +612,18 @@ class SQLiteViewer(wx.Frame):
         columns = [col for col in df.select_dtypes(include=valid_dtypes).columns.tolist() if df[col].isna().sum() != len(df)] if valid_dtypes else df.columns.tolist()
         columns = [col for col in [self.list_ctrl.GetColumn(i).GetText() for i in self.list_ctrl.GetColumnsOrder()] if col in columns]
         
-        if len(columns) < min_count:
-            wx.MessageBox(f"Unable to perform operation, please load a table with at least {min_count} valid column{'s'[:min_count^1]}", "Invalid operation", wx.OK | wx.ICON_ERROR)
+        if len(columns) < min_column_count:
+            wx.MessageBox(f"Unable to perform operation, please load a table with at least {min_column_count} valid column{'s'[:min_column_count^1]}", "Invalid operation", wx.OK | wx.ICON_ERROR)
             return
         
-        column_dialog = ColumnSelectionDialog(parent=self, columns=columns, min_count=min_count, max_count=max_count)
+        column_dialog = ColumnSelectionDialog(parent=self, columns=columns, min_count=min_column_count, max_count=max_column_count)
         if column_dialog.ShowModal() == wx.ID_OK:
             selected_columns = [columns[i] for i in column_dialog.selected_columns]
             if not column_dialog.ignore_filters:
                 df = self.db.get_filtered_sorted_df(table_name=self.table_switcher.GetStringSelection(), sort_column=self.sort_column, sort_order=self.sort_order, search_query=self.search_query)
+            if len(df) < min_data_count:
+                wx.MessageBox(f"Unable to perform operation, please load a table with at least {min_data_count:,} rows", "Invalid operation", wx.OK | wx.ICON_ERROR)
+                return
             callback(df=df[selected_columns], columns=selected_columns)
         column_dialog.Destroy()
 
@@ -639,6 +672,41 @@ class SQLiteViewer(wx.Frame):
         frame = MatplotlibFrame(parent=self)
         frame.plot_correlation_matrix(df=df, columns=columns)
         frame.Show()
+
+    def on_best_fitted_distribution(self, df: pd.DataFrame, columns: list):
+        """
+        Shows the best fitted distribution for the specified column
+
+        :param df: The dataframe to analyze
+        :param columns: The name of the column to analyze
+        """
+        def _show_best_fitted_distribution(df: pd.DataFrame, columns: list, dist_names: list, params: list):
+            frame = MatplotlibFrame(parent=self)
+            frame.plot_histogram(df=df, columns=columns, dist_names=dist_names, params=params)
+            frame.Show()
+
+        def _worker():
+            dist_names = ["norm", "expon", "pareto", "lognorm", "gamma", "beta", "uniform", "dweibull"]
+            best_dist, best_params, best_aic = None, None, np.inf
+            
+            try:
+                data = df[columns[0]].dropna()
+                for dist_name in dist_names:
+                    params = getattr(st, dist_name).fit(data)
+                    ll = getattr(st, dist_name).logpdf(data, *params).sum()
+                    aic = 2 * len(params) - 2 * ll
+
+                    if aic < best_aic:
+                        best_aic, best_dist, best_params = aic, dist_name, params
+
+                wx.CallAfter(_show_best_fitted_distribution, df=df, columns=columns, dist_names=[best_dist], params=[best_params])
+            except Exception as e:
+                wx.CallAfter(wx.MessageBox, f"Error finding best fitted distribution due to:\n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+                raise e
+            
+        thread = threading.Thread(target=_worker, name="best_fitted_distribution", daemon=True)
+        thread.start()
+        wx.CallLater(600, lambda: self.progress_dialog(thread=thread) if thread.is_alive() else None)
 
     def on_column_click(self, event):
         """
