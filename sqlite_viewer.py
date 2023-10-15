@@ -190,26 +190,29 @@ class MatplotlibFrame(wx.Frame):
 
         df = self._sample_data(df, self.SAMPLE_SIZE, ax)
         hist_data = pd.concat([df[graph] for graph in columns])
-        log_scale = bool(abs(hist_data.skew()) > 2) if hist_data.dtype.kind in "biufc" else False
+        log_scale_x = bool(abs(hist_data.skew()) > 2) if hist_data.dtype.kind in "biufc" else False
         
         for i, graph in enumerate(columns):
-            sns.histplot(data=df, x=graph, ax=ax, stat="density", bins="auto", log_scale=log_scale, label=graph)   
+            sns.histplot(data=df, x=graph, ax=ax, stat="density", bins="auto", log_scale=log_scale_x, label=graph)   
             if dist_names and params and i < min(len(dist_names), len(params)):
                 param_names = [name.strip() for name in getattr(st, dist_names[i]).shapes.split(",")] if getattr(st, dist_names[i]).shapes else []
                 param_names += ['loc'] if dist_names[i] in st._discrete_distns._distn_names else ['loc', 'scale']
                 param_str = ", ".join([f"{param_name}: {param:.2f}" for param_name, param in zip(param_names, params[i])])
 
-                plt.autoscale(False)
-                if log_scale:
+                if log_scale_x:
                     shift = abs(df[graph].min()) + 1 if df[graph].min() < 0 else 0
                     x = np.logspace(np.log10(shift + df[graph].min()), np.log10(shift + df[graph].max()), 1000)
+                    pdf = getattr(st, dist_names[i]).pdf(x, *params[i])
+                    # pdf = np.log10(pdf) # TODO: Fix y-axis scaling for log scale
                 else:
                     x = np.linspace(df[graph].min(), df[graph].max(), 1000)
-                pdf = getattr(st, dist_names[i]).pdf(x, *params[i])
+                    pdf = getattr(st, dist_names[i]).pdf(x, *params[i])
+                
+                plt.autoscale(False)
                 line_color = sns.color_palette("dark", n_colors=len(columns))[i]
                 ax.plot(x, pdf, label=f"{dist_names[i]} ({param_str})", color=line_color, linestyle="dashed")
         
-        ax.set_xlabel(f"{columns[0] if len(columns) == 1 else ' '}{' (log scale)' if log_scale else ''}")
+        ax.set_xlabel(f"{columns[0] if len(columns) == 1 else ' '}{' (log scale)' if log_scale_x else ''}")
         ax.legend(loc="lower left") if len(ax.get_legend_handles_labels()[0]) > 1 else ax.legend().remove()
         self._draw_plot(fig, ax)
 
