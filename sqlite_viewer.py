@@ -163,10 +163,7 @@ class MatplotlibFrame(wx.Frame):
     def _sample_data(self, df, sample_size, ax):
         if len(df) > sample_size:
             df = df.sample(n=sample_size, random_state=1)
-            ax.text(0.95, 0.95, f"Sampled {sample_size:,} rows", 
-                    transform=ax.transAxes, fontsize=12, 
-                    verticalalignment="top", horizontalalignment="right", 
-                    bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
+            ax.text(0.95, 0.95, f"Sampled {sample_size:,} rows", transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="right", bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
         return df
     
     def _draw_plot(self, fig, ax):
