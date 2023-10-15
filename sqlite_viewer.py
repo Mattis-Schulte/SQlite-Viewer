@@ -219,7 +219,7 @@ class MatplotlibFrame(wx.Frame):
 
         :param df: The dataframe to plot
         :param column_combinations: The column combinations to plot as a nested list with the inner lists containing a pair of columns
-        :param regression_line: Whether to plot a regression line
+        :param regression_line: Whether to plot a regression lines
         :param regression_line_params: The parameters of the regression line (slope, intercept, rvalue, pvalue, stderr), only displayed if there is one column combination
         """
         title = f"Scatter Plot \"{', '.join([' / '.join(graph) for graph in column_combinations])}\""
@@ -237,7 +237,7 @@ class MatplotlibFrame(wx.Frame):
                 line_color = sns.color_palette("dark", n_colors=len(column_combinations))[i]
                 sns.regplot(data=df, x=graph[0], y=graph[1], ax=ax, scatter=False, color=line_color, label=f"{graph[0]} / {graph[1]}")
                 if regression_line_params and len(column_combinations) == 1:
-                    text_result = f"Regression analysis results:\nSlope: {regression_line_params.slope:.4f}\nIntercept: {regression_line_params.intercept:.4f}\nR-value: {regression_line_params.rvalue:.4f}\nP-value: {regression_line_params.pvalue:.4f}\nStandard error: {regression_line_params.stderr:.4f}"
+                    text_result = f"Slope: {regression_line_params.slope:.4f}\nIntercept: {regression_line_params.intercept:.4f}\nR-value: {regression_line_params.rvalue:.4f}\nP-value: {regression_line_params.pvalue:.4f}\nStandard error: {regression_line_params.stderr:.4f}"
                     ax.text(0.95, 0.95, text_result, transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="right", bbox=dict(boxstyle="round", facecolor="white", alpha=0.8))
         
         plt.xscale("log") if scatter_log_scale_x else None
