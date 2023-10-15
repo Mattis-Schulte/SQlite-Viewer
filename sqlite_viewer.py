@@ -146,10 +146,12 @@ class MatplotlibFrame(wx.Frame):
     
     :param parent: The parent window
     """
+    SAMPLE_SIZE = 250_000
+
     def __init__(self, parent):
         super().__init__(parent)
 
-    def _configure_plot(self, title):
+    def _configure_plot(self, title: str) -> tuple:
         sns.set_style("darkgrid")
         sns.set_palette("colorblind")
         fig, ax = plt.subplots(figsize=(6, 4))
@@ -160,13 +162,13 @@ class MatplotlibFrame(wx.Frame):
         self.SetTitle(f"SQLite Viewer: Showing {title}")
         return fig, ax
 
-    def _sample_data(self, df, sample_size, ax):
+    def _sample_data(self, df: pd.DataFrame, sample_size: int, ax: plt.Axes) -> pd.DataFrame:
         if len(df) > sample_size:
             df = df.sample(n=sample_size, random_state=1)
             ax.text(0.95, 0.95, f"Sampled {sample_size:,} rows", transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="right", bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
         return df
     
-    def _draw_plot(self, fig, ax):
+    def _draw_plot(self, fig: plt.Figure, ax: plt.Axes):
         plt.tight_layout()
         canvas = FigureCanvas(self, -1, fig)
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -185,7 +187,7 @@ class MatplotlibFrame(wx.Frame):
         """
         title = f"{'Best Fitted Distribution' if dist_names else 'Histogram'} \"{', '.join(columns)}\""
         fig, ax = self._configure_plot(title)
-        df = self._sample_data(df, 250_000, ax)
+        df = self._sample_data(df, self.SAMPLE_SIZE, ax)
         hist_data = pd.concat([df[graph] for graph in columns])
         log_scale = bool(abs(hist_data.skew()) > 2) if hist_data.dtype.kind in "biufc" else False
         ax.set_xlabel(f"{columns[0] if len(columns) == 1 else ' '}{' (log scale)' if log_scale else ''}")
@@ -217,7 +219,7 @@ class MatplotlibFrame(wx.Frame):
         """
         title = f"Scatter Plot \"{', '.join([' / '.join(graph) for graph in column_combinations])}\""
         fig, ax = self._configure_plot(title)
-        df = self._sample_data(df, 250_000, ax)
+        df = self._sample_data(df, self.SAMPLE_SIZE, ax)
         scatter_data_x = pd.concat([df[graph[0]] for graph in column_combinations])
         scatter_data_y = pd.concat([df[graph[1]] for graph in column_combinations])
         scatter_log_scale_x = bool(abs(scatter_data_x.skew()) > 2)
@@ -240,7 +242,6 @@ class MatplotlibFrame(wx.Frame):
         """
         title = f"Correlation Matrix \"{', '.join(columns)}\""
         fig, ax = self._configure_plot(title)
-        df = self._sample_data(df, 250_000, ax)
         sns.heatmap(data=df[columns].corr(numeric_only=False), annot=True, fmt=".2f", ax=ax)
         self._draw_plot(fig, ax)
 
