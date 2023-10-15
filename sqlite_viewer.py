@@ -165,7 +165,7 @@ class MatplotlibFrame(wx.Frame):
     def _sample_data(self, df: pd.DataFrame, sample_size: int, ax: plt.Axes) -> pd.DataFrame:
         if len(df) > sample_size:
             df = df.sample(n=sample_size, random_state=1)
-            ax.text(0.95, 0.95, f"Sampled {sample_size:,} rows", transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="right", bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
+            ax.text(0.05, 0.95, f"Sampled {sample_size:,} rows", transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="left", bbox=dict(boxstyle="round", facecolor="white", alpha=0.8))
         return df
     
     def _draw_plot(self, fig: plt.Figure, ax: plt.Axes):
@@ -187,12 +187,13 @@ class MatplotlibFrame(wx.Frame):
         """
         title = f"{'Best Fitted Distribution' if dist_names else 'Histogram'} \"{', '.join(columns)}\""
         fig, ax = self._configure_plot(title)
+
         df = self._sample_data(df, self.SAMPLE_SIZE, ax)
         hist_data = pd.concat([df[graph] for graph in columns])
         log_scale = bool(abs(hist_data.skew()) > 2) if hist_data.dtype.kind in "biufc" else False
-        ax.set_xlabel(f"{columns[0] if len(columns) == 1 else ' '}{' (log scale)' if log_scale else ''}")
+        
         for i, graph in enumerate(columns):
-            sns.histplot(data=df, x=graph, ax=ax, stat="density", bins="auto", log_scale=log_scale, label=graph)
+            sns.histplot(data=df, x=graph, ax=ax, stat="density", bins="auto", log_scale=log_scale, label=graph)   
             if dist_names and params and i < min(len(dist_names), len(params)):
                 param_names = [name.strip() for name in getattr(st, dist_names[i]).shapes.split(",")] if getattr(st, dist_names[i]).shapes else []
                 param_names += ['loc'] if dist_names[i] in st._discrete_distns._distn_names else ['loc', 'scale']
@@ -207,30 +208,43 @@ class MatplotlibFrame(wx.Frame):
                 pdf = getattr(st, dist_names[i]).pdf(x, *params[i])
                 line_color = sns.color_palette("dark", n_colors=len(columns))[i]
                 ax.plot(x, pdf, label=f"{dist_names[i]} ({param_str})", color=line_color, linestyle="dashed")
-        ax.legend(loc="lower right") if len(ax.get_legend_handles_labels()[0]) > 1 else ax.legend().remove()
+        
+        ax.set_xlabel(f"{columns[0] if len(columns) == 1 else ' '}{' (log scale)' if log_scale else ''}")
+        ax.legend(loc="lower left") if len(ax.get_legend_handles_labels()[0]) > 1 else ax.legend().remove()
         self._draw_plot(fig, ax)
 
-    def plot_scatter(self, df: pd.DataFrame, column_combinations: list):
+    def plot_scatter(self, df: pd.DataFrame, column_combinations: list, regression_line: bool = False, regression_line_params: tuple | None = None):
         """
         Plots a scatter plot for the specified column combinations
 
         :param df: The dataframe to plot
         :param column_combinations: The column combinations to plot as a nested list with the inner lists containing a pair of columns
+        :param regression_line: Whether to plot a regression line
+        :param regression_line_params: The parameters of the regression line (slope, intercept, rvalue, pvalue, stderr), only displayed if there is one column combination
         """
         title = f"Scatter Plot \"{', '.join([' / '.join(graph) for graph in column_combinations])}\""
         fig, ax = self._configure_plot(title)
+
         df = self._sample_data(df, self.SAMPLE_SIZE, ax)
         scatter_data_x = pd.concat([df[graph[0]] for graph in column_combinations])
         scatter_data_y = pd.concat([df[graph[1]] for graph in column_combinations])
-        scatter_log_scale_x = bool(abs(scatter_data_x.skew()) > 2)
-        scatter_log_scale_y = bool(abs(scatter_data_y.skew()) > 2)
-        ax.set_xlabel(f"{', '.join([graph[0] for graph in column_combinations])}{' (log scale)' if scatter_log_scale_x else ''}")
-        ax.set_ylabel(f"{', '.join([graph[1] for graph in column_combinations])}{' (log scale)' if scatter_log_scale_y else ''}")
-        for graph in column_combinations:
+        scatter_log_scale_x = bool(abs(scatter_data_x.skew()) > 2) if scatter_data_x.dtype.kind in "biufc" else False
+        scatter_log_scale_y = bool(abs(scatter_data_y.skew()) > 2) if scatter_data_y.dtype.kind in "biufc" else False
+        
+        for i, graph in enumerate(column_combinations):
             sns.scatterplot(data=df, x=graph[0], y=graph[1], ax=ax, label=f"{graph[0]} / {graph[1]}")
+            if regression_line:
+                line_color = sns.color_palette("dark", n_colors=len(column_combinations))[i]
+                sns.regplot(data=df, x=graph[0], y=graph[1], ax=ax, scatter=False, color=line_color, label=f"{graph[0]} / {graph[1]}")
+                if regression_line_params and len(column_combinations) == 1:
+                    text_result = f"Regression analysis results:\nSlope: {regression_line_params.slope:.4f}\nIntercept: {regression_line_params.intercept:.4f}\nR-value: {regression_line_params.rvalue:.4f}\nP-value: {regression_line_params.pvalue:.4f}\nStandard error: {regression_line_params.stderr:.4f}"
+                    ax.text(0.95, 0.95, text_result, transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="right", bbox=dict(boxstyle="round", facecolor="white", alpha=0.8))
+        
         plt.xscale("log") if scatter_log_scale_x else None
         plt.yscale("log") if scatter_log_scale_y else None
-        ax.legend(loc="lower right") if len(ax.get_legend_handles_labels()[0]) > 1 else ax.legend().remove()
+        ax.set_xlabel(f"{', '.join([graph[0] for graph in column_combinations])}{' (log scale)' if scatter_log_scale_x else ''}")
+        ax.set_ylabel(f"{', '.join([graph[1] for graph in column_combinations])}{' (log scale)' if scatter_log_scale_y else ''}")
+        ax.legend(loc="lower left") if len(ax.get_legend_handles_labels()[0]) > 1 else ax.legend().remove()
         self._draw_plot(fig, ax)
 
     def plot_correlation_matrix(self, df: pd.DataFrame, columns: list):
@@ -317,6 +331,8 @@ class SQLiteViewer(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_BIND_IDS["ID_SCATTER_PLOT"])
         self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_BIND_IDS["ID_CORRELATION_MATRIX"])
         self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_BIND_IDS["ID_BEST_FITTED_DISTRIBUTION"])
+        self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_BIND_IDS["ID_REGRESSION_ANALYSIS"])
+        self.Bind(wx.EVT_MENU, self.on_data_menu, id=self.CUSTOM_BIND_IDS["ID_ANOVA"])
         self.Bind(wx.EVT_CLOSE, self.on_exit)
         self.list_ctrl.Bind(wx.EVT_LIST_ITEM_SELECTED, self.on_select_cell)
         self.list_ctrl.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.on_select_cell)
@@ -585,15 +601,15 @@ class SQLiteViewer(wx.Frame):
             elif menu_id == self.CUSTOM_BIND_IDS["ID_HISTOGRAM"]:
                 self.show_column_selection_dialog(callback=self.on_histogram, valid_dtypes=["number", "datetime"])
             elif menu_id == self.CUSTOM_BIND_IDS["ID_SCATTER_PLOT"]:
-                self.show_column_selection_dialog(callback=self.on_scatter_plot, valid_dtypes=["number"], min_column_count=2, max_column_count=2)
+                self.show_column_selection_dialog(callback=self.on_scatter_plot, valid_dtypes=["number", "datetime"], min_column_count=2, max_column_count=2)
             elif menu_id == self.CUSTOM_BIND_IDS["ID_CORRELATION_MATRIX"]:
                 self.show_column_selection_dialog(callback=self.on_correlation_matrix, valid_dtypes=["number", "datetime"], min_column_count=2, min_data_count=10)
             elif menu_id == self.CUSTOM_BIND_IDS["ID_BEST_FITTED_DISTRIBUTION"]:
                 self.show_column_selection_dialog(callback=self.on_best_fitted_distribution, valid_dtypes=["number"], min_column_count=1, max_column_count=1, min_data_count=10)
             elif menu_id == self.CUSTOM_BIND_IDS["ID_REGRESSION_ANALYSIS"]:
-                self.show_column_selection_dialog(callback=self.on_regression_analysis)
+                self.show_column_selection_dialog(callback=self.on_regression_analysis, valid_dtypes=["number"], min_column_count=2, min_data_count=10)
             elif menu_id == self.CUSTOM_BIND_IDS["ID_ANOVA"]:
-                self.show_column_selection_dialog(callback=self.on_anova)
+                self.show_column_selection_dialog(callback=self.on_anova, valid_dtypes=["number", "datetime"], min_column_count=2, min_data_count=10)
         else:
             wx.MessageBox("Unable to perform operation, please load a valid table first", "Invalid operation", wx.OK | wx.ICON_ERROR)
 
@@ -633,7 +649,7 @@ class SQLiteViewer(wx.Frame):
         :param columns: The names of the columns to analyze as a list
         """
         message = "\n".join([f"{column}:\n{df[column].describe(datetime_is_numeric=True)}\n" for column in columns])
-        wx.MessageDialog(self, message, "Descriptive statistics", wx.OK | wx.ICON_INFORMATION).ShowModal()
+        wx.MessageBox(message, "Descriptive statistics", wx.OK | wx.ICON_INFORMATION)
 
     def on_histogram(self, df: pd.DataFrame, columns: list):
         """
@@ -705,6 +721,40 @@ class SQLiteViewer(wx.Frame):
         thread = threading.Thread(target=_worker, name="best_fitted_distribution", daemon=True)
         thread.start()
         wx.CallLater(600, lambda: self.progress_dialog(thread=thread) if thread.is_alive() else None)
+
+    def on_regression_analysis(self, df: pd.DataFrame, columns: list):
+        """
+        Performs a regression analysis for the specified columns
+
+        :param df: The dataframe to analyze
+        :param columns: The names of the columns to analyze as a list
+        """
+        try:
+            min_len = min(len(df[column].dropna().values) for column in columns)
+            data = [df[column].dropna().values[:min_len] for column in columns]
+            result = st.linregress(*data)
+
+            frame = MatplotlibFrame(parent=self)
+            frame.plot_scatter(df=df, column_combinations=[[columns[0], columns[1]]], regression_line=True, regression_line_params=result)
+            frame.Show()
+        except Exception as e:
+            wx.MessageBox(f"Error performing regression analysis due to:\n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+            raise e
+
+    def on_anova(self, df: pd.DataFrame, columns: list):
+        """
+        Performs an ANOVA test for the specified columns
+
+        :param df: The dataframe to analyze
+        :param columns: The names of the columns to analyze as a list
+        """
+        try:
+            data = [df[column].dropna().values for column in columns]
+            result = st.f_oneway(*data)
+            wx.MessageBox(f"ANOVA test results:\nF-statistic: {result.statistic:.4f}\nP-value: {result.pvalue:.4f}", "ANOVA test results", wx.OK | wx.ICON_INFORMATION)
+        except Exception as e:
+            wx.MessageBox(f"Error performing ANOVA test due to:\n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+            raise e
 
     def on_column_click(self, event):
         """
