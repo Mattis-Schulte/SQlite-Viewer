@@ -63,9 +63,9 @@ class MatplotlibFrame(wx.Frame):
 
         menubar = wx.MenuBar()
         plot_menu = wx.Menu()
-        save_item = plot_menu.Append(wx.ID_SAVE, "Save")
-        exit_item = plot_menu.Append(wx.ID_EXIT, "Close")
-        menubar.Append(plot_menu, "Plot")
+        save_item = plot_menu.Append(wx.ID_SAVE, "Save as...")
+        exit_item = plot_menu.Append(wx.ID_EXIT, "Close plot")
+        menubar.Append(plot_menu, "Save")
         self.SetMenuBar(menubar)
 
         self.Bind(wx.EVT_MENU, self._on_save_button, save_item)
@@ -99,7 +99,7 @@ class MatplotlibFrame(wx.Frame):
     def _save_plot(self, file_path: str):
         if not file_path.lower().endswith((".png", ".jpg")):
             file_path += ".png"
-        plt.savefig(file_path, bbox_inches="tight")
+        plt.savefig(file_path, dpi=300, bbox_inches="tight")
 
     def _on_save_button(self, event):
         default_file = f"{self.title.lower().replace(' ', '-')}.png" if self.title else ""
