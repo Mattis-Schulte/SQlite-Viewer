@@ -1,266 +1,13 @@
-import functools
+import math
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigureCanvas
-import numpy as np
 import os.path as path
 import pandas as pd
-import seaborn as sns
 import scipy.stats as st
-import sqlite3
 import threading
+from utils.database_handler import DataframeConnection
+from utils.custom_wx_objects import ColumnSelectionDialog, MatplotlibFrame
 import warnings
 import wx
-
-
-class DataframeConnection:
-    """
-    A class to connect to a database file and retrieve table names and dataframes
-
-    :param db_file: The path to the database file
-    """
-    def __init__(self, db_file: str):
-        self.db_file = db_file
-        self.file_type = path.splitext(db_file)[1].lower()
-
-    def get_table_or_sheet_names(self) -> list:
-        """
-        Gets the names of all tables or sheets in the database file
-
-        :return: A list of table or sheet names
-        """
-        if self.file_type in (".db", ".db3", ".sqlite", ".sqlite3"):
-            return self._get_sqlite_table_names()
-        elif self.file_type == ".xlsx":
-            return self._get_excel_sheet_names()
-        elif self.file_type == ".csv":
-            return ["CSV file"]
-        else:
-            raise ValueError(f"Unsupported file type: {self.file_type}")
-    
-    @functools.lru_cache(maxsize=1)
-    def get_df(self, table_name: str) -> pd.DataFrame:
-        """
-        Gets a dataframe of the data in the specified table or sheet
-
-        :param table_name: The name of the table or sheet to get the data from
-        :return: A dataframe of the data in the specified table or sheet
-        """
-        if self.file_type in (".db", ".db3", ".sqlite", ".sqlite3"):
-            return self._get_sqlite_dataframe(table_name)
-        elif self.file_type == ".xlsx":
-            return self._get_excel_dataframe(table_name)
-        elif self.file_type == ".csv":
-            return self._get_csv_dataframe()
-        else:
-            raise ValueError(f"Unsupported file type: {self.file_type}")
-    
-    @functools.lru_cache(maxsize=1)
-    def get_filtered_sorted_df(self, table_name: str, sort_column: str | None = None, sort_order: bool = False, search_query: str | None = None) -> pd.DataFrame:
-        """
-        Gets a filtered and sorted dataframe of the data in the specified table or sheet
-
-        :param table_name: The name of the table or sheet to get the data from
-        :param sort_column: The name of the column to sort by
-        :param sort_order: The order to sort by, True for ascending, False for descending
-        :param search_query: The string to search for in the dataframe
-        :return: A filtered and sorted dataframe
-        """
-        df = self.get_df(table_name=table_name)
-        if search_query:
-            df = df[df.astype(str).apply(lambda row: row.str.contains(search_query, case=False, regex=False)).any(axis=1)]
-        if sort_column:
-            df = df.sort_values(by=sort_column, ascending=sort_order)
-        return df
-
-    def _get_sqlite_table_names(self) -> list:
-        with sqlite3.connect(self.db_file) as conn:
-            tables = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table';", conn)["name"].tolist()
-        return [name for name in tables if not name.startswith("sqlite_autoindex_")]
-
-    def _get_excel_sheet_names(self) -> list:
-        return list(pd.read_excel(self.db_file, sheet_name=None).keys())
-
-    def _get_sqlite_dataframe(self, table_name: str) -> pd.DataFrame:
-        with sqlite3.connect(self.db_file, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES) as conn:
-            df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
-        return df
-
-    def _get_excel_dataframe(self, table_name: str) -> pd.DataFrame:
-        return pd.read_excel(self.db_file, sheet_name=table_name, parse_dates=True, date_parser=pd.to_datetime)
-
-    def _get_csv_dataframe(self) -> pd.DataFrame:
-        try:
-            return pd.read_csv(self.db_file, on_bad_lines="error", encoding="utf-8", engine="python", parse_dates=True, date_parser=pd.to_datetime)
-        except pd.errors.EmptyDataError:
-            return pd.DataFrame()
-        except (TypeError, ValueError):
-            return pd.read_csv(self.db_file, sep=";", on_bad_lines="warn", encoding="utf-8", engine="python", parse_dates=True, date_parser=pd.to_datetime)
-
-
-class ColumnSelectionDialog(wx.Dialog):
-    """
-    A custom implementation of wx.Dialog to select columns from a listbox
-
-    :param parent: The parent window
-    :param columns: A list of columns to display in the listbox
-    :param min_count: The minimum number of columns that must be selected
-    :param max_count: The maximum number of columns that can be selected
-    """
-    ignore_filters = True
-
-    def __init__(self, parent: wx.Frame, columns: list, min_count: int = 1, max_count: int | None = None):
-        super().__init__(parent, title="Select columns to analyze", size=(300, 225))
-
-        self.min_count, self.max_count = min_count, max_count
-        self.listbox = wx.ListBox(self, choices=columns, style=wx.LB_MULTIPLE)
-        self.ignore_filters_checkbox = wx.CheckBox(self, label="Ignore applied filters")
-        self.ignore_filters_checkbox.SetValue(ColumnSelectionDialog.ignore_filters)
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self.listbox, 1, wx.EXPAND | wx.TOP | wx.LEFT | wx.RIGHT, 10)
-        sizer.Add(self.ignore_filters_checkbox, 0, wx.EXPAND | wx.TOP | wx.LEFT | wx.RIGHT, 10)
-        sizer.Add(self.CreateButtonSizer(wx.OK | wx.CANCEL), flag=wx.ALIGN_CENTER | wx.ALL, border=15)
-        self.SetSizer(sizer)
-
-        self.Bind(wx.EVT_CHECKBOX, self._on_checkbox, self.ignore_filters_checkbox)
-        self.Bind(wx.EVT_BUTTON, self._on_ok, id=wx.ID_OK)
-        self.CenterOnParent()
-
-    def _on_checkbox(self, event):
-        # Update the class variable so that the checkbox state is remembered
-        ColumnSelectionDialog.ignore_filters = self.ignore_filters_checkbox.IsChecked()
-
-    def _on_ok(self, event):
-        self.selected_columns = self.listbox.GetSelections()
-        if self.min_count and len(self.selected_columns) < self.min_count:
-            wx.MessageBox(f"Please select at least {self.min_count} column{'s'[:self.min_count^1]}", "Invalid operation", wx.OK | wx.ICON_ERROR)
-            return
-        elif self.max_count and len(self.selected_columns) > self.max_count:
-            wx.MessageBox(f"Please select no more than {self.max_count} column{'s'[:self.max_count^1]}", "Invalid operation", wx.OK | wx.ICON_ERROR)
-            return
-        self.EndModal(wx.ID_OK)
-
-
-class MatplotlibFrame(wx.Frame):
-    """
-    A custom implementation of wx.Frame to display matplotlib plots
-    
-    :param parent: The parent window
-    """
-    SAMPLE_SIZE = 250_000
-
-    def __init__(self, parent):
-        super().__init__(parent)
-
-    def _configure_plot(self, title: str) -> tuple:
-        sns.set_style("darkgrid")
-        sns.set_palette("colorblind")
-        fig, ax = plt.subplots(figsize=(6, 4))
-        canvas = FigureCanvas(self, -1, fig)
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(canvas, 1, wx.EXPAND)
-        self.SetSizerAndFit(sizer)
-        self.SetTitle(f"SQLite Viewer: Showing {title}")
-        return fig, ax
-
-    def _sample_data(self, df: pd.DataFrame, sample_size: int, ax: plt.Axes) -> pd.DataFrame:
-        if len(df) > sample_size:
-            df = df.sample(n=sample_size, random_state=1)
-            ax.text(0.05, 0.95, f"Sampled {sample_size:,} rows", transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="left", bbox=dict(boxstyle="round", facecolor="white", alpha=0.8))
-        return df
-    
-    def _draw_plot(self, fig: plt.Figure, ax: plt.Axes):
-        plt.tight_layout()
-        canvas = FigureCanvas(self, -1, fig)
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(canvas, 1, wx.EXPAND)
-        self.SetSizerAndFit(sizer)
-        canvas.draw()
-
-    def plot_histogram(self, df: pd.DataFrame, columns: list, dist_names: list[str, ...] | None = None, params: list[tuple, ...] | None = None):
-        """
-        Plots a histogram of the specified columns and optionally the best fitted distribution too
-
-        :param df: The dataframe to plot the histogram for
-        :param columns: The columns to plot the histogram for
-        :param dist_names: The names of the distributions to plot
-        :param params: The parameters of the distributions to plot
-        """
-        title = f"{'Best Fitted Distribution' if dist_names else 'Histogram'} \"{', '.join(columns)}\""
-        fig, ax = self._configure_plot(title)
-
-        df = self._sample_data(df, self.SAMPLE_SIZE, ax)
-        hist_data = pd.concat([df[graph] for graph in columns])
-        log_scale_x = bool(abs(hist_data.skew()) > 2) if hist_data.dtype.kind in "biufc" else False
-        
-        for i, graph in enumerate(columns):
-            sns.histplot(data=df, x=graph, ax=ax, stat="density", bins="auto", log_scale=log_scale_x, label=graph)   
-            if dist_names and params and i < min(len(dist_names), len(params)):
-                param_names = [name.strip() for name in getattr(st, dist_names[i]).shapes.split(",")] if getattr(st, dist_names[i]).shapes else []
-                param_names += ['loc'] if dist_names[i] in st._discrete_distns._distn_names else ['loc', 'scale']
-                param_str = ", ".join([f"{param_name}: {param:.2f}" for param_name, param in zip(param_names, params[i])])
-
-                if log_scale_x:
-                    shift = abs(df[graph].min()) + 1 if df[graph].min() < 0 else 0
-                    x = np.logspace(np.log10(shift + df[graph].min()), np.log10(shift + df[graph].max()), 1000)
-                    pdf = getattr(st, dist_names[i]).pdf(x, *params[i])
-                    # pdf = np.log10(pdf) # TODO: Fix y-axis scaling for log scale
-                else:
-                    x = np.linspace(df[graph].min(), df[graph].max(), 1000)
-                    pdf = getattr(st, dist_names[i]).pdf(x, *params[i])
-                
-                plt.autoscale(False)
-                line_color = sns.color_palette("dark", n_colors=len(columns))[i]
-                ax.plot(x, pdf, label=f"{dist_names[i]} ({param_str})", color=line_color, linestyle="dashed")
-        
-        ax.set_xlabel(f"{columns[0] if len(columns) == 1 else ' '}{' (log scale)' if log_scale_x else ''}")
-        ax.legend(loc="lower left") if len(ax.get_legend_handles_labels()[0]) > 1 else ax.legend().remove()
-        self._draw_plot(fig, ax)
-
-    def plot_scatter(self, df: pd.DataFrame, column_combinations: list, regression_line: bool = False, regression_line_params: tuple | None = None):
-        """
-        Plots a scatter plot for the specified column combinations
-
-        :param df: The dataframe to plot
-        :param column_combinations: The column combinations to plot as a nested list with the inner lists containing a pair of columns
-        :param regression_line: Whether to plot a regression lines
-        :param regression_line_params: The parameters of the regression line (slope, intercept, rvalue, pvalue, stderr), only displayed if there is one column combination
-        """
-        title = f"Scatter Plot \"{', '.join([' / '.join(graph) for graph in column_combinations])}\""
-        fig, ax = self._configure_plot(title)
-
-        df = self._sample_data(df, self.SAMPLE_SIZE, ax)
-        scatter_data_x = pd.concat([df[graph[0]] for graph in column_combinations])
-        scatter_data_y = pd.concat([df[graph[1]] for graph in column_combinations])
-        scatter_log_scale_x = bool(abs(scatter_data_x.skew()) > 2) if scatter_data_x.dtype.kind in "biufc" else False
-        scatter_log_scale_y = bool(abs(scatter_data_y.skew()) > 2) if scatter_data_y.dtype.kind in "biufc" else False
-        
-        for i, graph in enumerate(column_combinations):
-            sns.scatterplot(data=df, x=graph[0], y=graph[1], ax=ax, label=f"{graph[0]} / {graph[1]}")
-            if regression_line:
-                line_color = sns.color_palette("dark", n_colors=len(column_combinations))[i]
-                sns.regplot(data=df, x=graph[0], y=graph[1], ax=ax, scatter=False, color=line_color, label=f"{graph[0]} / {graph[1]}")
-                if regression_line_params and len(column_combinations) == 1:
-                    text_result = f"Slope: {regression_line_params.slope:.4f}\nIntercept: {regression_line_params.intercept:.4f}\nR-value: {regression_line_params.rvalue:.4f}\nP-value: {regression_line_params.pvalue:.4f}\nStandard error: {regression_line_params.stderr:.4f}"
-                    ax.text(0.95, 0.95, text_result, transform=ax.transAxes, fontsize=12, verticalalignment="top", horizontalalignment="right", bbox=dict(boxstyle="round", facecolor="white", alpha=0.8))
-        
-        plt.xscale("log") if scatter_log_scale_x else None
-        plt.yscale("log") if scatter_log_scale_y else None
-        ax.set_xlabel(f"{', '.join([graph[0] for graph in column_combinations])}{' (log scale)' if scatter_log_scale_x else ''}")
-        ax.set_ylabel(f"{', '.join([graph[1] for graph in column_combinations])}{' (log scale)' if scatter_log_scale_y else ''}")
-        ax.legend(loc="lower left") if len(ax.get_legend_handles_labels()[0]) > 1 else ax.legend().remove()
-        self._draw_plot(fig, ax)
-
-    def plot_correlation_matrix(self, df: pd.DataFrame, columns: list):
-        """
-        Plots a correlation matrix for the specified columns
-
-        :param df: The dataframe to plot
-        :param columns: The names of the columns to plot as a list
-        """
-        title = f"Correlation Matrix \"{', '.join(columns)}\""
-        fig, ax = self._configure_plot(title)
-        sns.heatmap(data=df[columns].corr(numeric_only=False), annot=True, fmt=".2f", ax=ax)
-        self._draw_plot(fig, ax)
 
 
 class SQLiteViewer(wx.Frame):
@@ -452,7 +199,7 @@ class SQLiteViewer(wx.Frame):
                     wx.CallAfter(self.SetStatusText, "No data found in table")
                     return
 
-                self.total_pages = int(np.ceil(total_rows / page_size))
+                self.total_pages = math.ceil(total_rows / page_size)
                 self.next_page_button.Enable(self.total_pages > 1)
                 wx.CallAfter(self.display_table, table_name=table_name, rows=rows, columns=df.columns.tolist())
                 wx.CallAfter(self.SetStatusText, f"Showing table: {table_name}, rows: {total_rows:,}, page: {page_number:,} of {self.total_pages:,}") if set_status else None
@@ -622,8 +369,9 @@ class SQLiteViewer(wx.Frame):
 
         :param callback: The function to call with the selected columns
         :param valid_dtypes: The valid data types for the columns to select
-        :param min_count: The minimum number of columns to select
-        :param max_count: The maximum number of columns to select
+        :param min_column_count: The minimum number of columns to select
+        :param max_column_count: The maximum number of columns to select
+        :param min_data_count: The minimum number of data rows required to perform the analysis
         """
         df = self.db.get_df(table_name=self.table_switcher.GetStringSelection())
         columns = [col for col in df.select_dtypes(include=valid_dtypes).columns.tolist() if df[col].isna().sum() != len(df)] if valid_dtypes else df.columns.tolist()
@@ -704,7 +452,7 @@ class SQLiteViewer(wx.Frame):
 
         def _worker():
             dist_names = ["norm", "expon", "pareto", "lognorm", "gamma", "beta", "uniform", "dweibull"]
-            best_dist, best_params, best_aic = None, None, np.inf
+            best_dist, best_params, best_aic = None, None, math.inf
             
             try:
                 data = df[columns[0]].dropna()
