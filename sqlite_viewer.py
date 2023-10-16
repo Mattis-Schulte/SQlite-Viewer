@@ -135,14 +135,14 @@ class SQLiteViewer(wx.Frame):
 
         self.SetMenuBar(menu_bar)
 
-    def load_database_file(self, filename):
+    def load_database_file(self, file_path):
         """
         Tries to load the specified database file and displays an error message if it fails
 
-        :param filename: The path to the database file
+        :param file_path: The path to the database file
         """
         try:
-            db = DataframeConnection(db_file=filename)
+            db = DataframeConnection(db_file=file_path)
             table_names = db.get_table_or_sheet_names()
             if not table_names:
                 wx.MessageBox("No tables found in database", "Error opening database", wx.OK | wx.ICON_ERROR)
@@ -161,7 +161,7 @@ class SQLiteViewer(wx.Frame):
         self.column_attr = {}
         self.reset_state()
         self.load_table_data(table_name=table_names[0], page_size=self.items_per_page)
-        self.SetTitle(f"SQLite Viewer: Showing database \"{path.basename(filename)}\"")
+        self.SetTitle(f"SQLite Viewer: Showing database \"{path.basename(file_path)}\"")
 
     def load_table_data(self, table_name: str, page_number: int = 1, page_size: int = 250, sort_column: str | None = None, sort_order: bool = False, search_query: str | None = None, set_status: bool = True):
         """
@@ -268,7 +268,7 @@ class SQLiteViewer(wx.Frame):
         with wx.FileDialog(self, "Open SQLite file", wildcard=wildcard, style=fd_style) as dlg:
             if dlg.ShowModal() == wx.ID_CANCEL:
                 return
-            self.load_database_file(filename=dlg.GetPath())
+            self.load_database_file(file_path=dlg.GetPath())
 
     def on_exit(self, event):
         """

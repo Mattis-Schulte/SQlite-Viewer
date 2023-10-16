@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigureCanvas
 import numpy as np
 import pandas as pd
+import re
 import seaborn as sns
 import scipy.stats as st
 import wx
@@ -60,6 +61,16 @@ class MatplotlibFrame(wx.Frame):
     def __init__(self, parent):
         super().__init__(parent)
 
+        menubar = wx.MenuBar()
+        plot_menu = wx.Menu()
+        save_item = plot_menu.Append(wx.ID_SAVE, "Save")
+        exit_item = plot_menu.Append(wx.ID_EXIT, "Close")
+        menubar.Append(plot_menu, "Plot")
+        self.SetMenuBar(menubar)
+
+        self.Bind(wx.EVT_MENU, self._on_save_button, save_item)
+        self.Bind(wx.EVT_MENU, self._on_exit_button, exit_item)
+
     def _configure_plot(self, title: str) -> tuple:
         sns.set_style("darkgrid")
         sns.set_palette("colorblind")
@@ -85,6 +96,22 @@ class MatplotlibFrame(wx.Frame):
         self.SetSizerAndFit(sizer)
         canvas.draw()
 
+    def _save_plot(self, file_path: str):
+        if not file_path.lower().endswith((".png", ".jpg")):
+            file_path += ".png"
+        plt.savefig(file_path, bbox_inches="tight")
+
+    def _on_save_button(self, event):
+        default_file = f"{self.title.lower().replace(' ', '-')}.png" if self.title else ""
+        default_file = re.sub(r"[<>:\"/\\|?*]", "", default_file)
+        with wx.FileDialog(self, "Save Plot", defaultFile=default_file, wildcard="Image files (*.png;*.jpg)|*.png;*.jpg", style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as file_dialog:
+            if file_dialog.ShowModal() == wx.ID_CANCEL: 
+                return
+            self._save_plot(file_path=file_dialog.GetPath())
+
+    def _on_exit_button(self, event):
+        self.Destroy()
+
     def plot_histogram(self, df: pd.DataFrame, columns: list, dist_names: list[str, ...] | None = None, params: list[tuple, ...] | None = None):
         """
         Plots a histogram of the specified columns and optionally the best fitted distribution too
@@ -94,8 +121,8 @@ class MatplotlibFrame(wx.Frame):
         :param dist_names: The names of the distributions to plot
         :param params: The parameters of the distributions to plot
         """
-        title = f"{'Best Fitted Distribution' if dist_names else 'Histogram'} \"{', '.join(columns)}\""
-        fig, ax = self._configure_plot(title)
+        self.title = f"{'Best Fitted Distribution' if dist_names else 'Histogram'} \"{', '.join(columns)}\""
+        fig, ax = self._configure_plot(self.title)
 
         df = self._sample_data(df, self.SAMPLE_SIZE, ax)
         hist_data = pd.concat([df[graph] for graph in columns])
@@ -134,8 +161,8 @@ class MatplotlibFrame(wx.Frame):
         :param regression_line: Whether to plot a regression lines
         :param regression_line_params: The parameters of the regression line (slope, intercept, rvalue, pvalue, stderr), only displayed if there is one column combination
         """
-        title = f"Scatter Plot \"{', '.join([' / '.join(graph) for graph in column_combinations])}\""
-        fig, ax = self._configure_plot(title)
+        self.title = f"Scatter Plot \"{', '.join([' / '.join(graph) for graph in column_combinations])}\""
+        fig, ax = self._configure_plot(self.title)
 
         df = self._sample_data(df, self.SAMPLE_SIZE, ax)
         scatter_data_x = pd.concat([df[graph[0]] for graph in column_combinations])
@@ -166,7 +193,7 @@ class MatplotlibFrame(wx.Frame):
         :param df: The dataframe to plot
         :param columns: The names of the columns to plot as a list
         """
-        title = f"Correlation Matrix \"{', '.join(columns)}\""
-        fig, ax = self._configure_plot(title)
+        self.title = f"Correlation Matrix \"{', '.join(columns)}\""
+        fig, ax = self._configure_plot(self.title)
         sns.heatmap(data=df[columns].corr(numeric_only=False), annot=True, fmt=".2f", ax=ax)
         self._draw_plot(fig, ax)
