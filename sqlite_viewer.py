@@ -176,6 +176,7 @@ class SQLiteViewer(wx.Frame):
         :param set_status: Whether to update the status bar text
         """
         def _worker():
+            # TODO: Kill thread if another table is selected before this one is loaded
             with self.list_ctrl_lock:
                 self.save_column_attr(table_name=table_name)
 

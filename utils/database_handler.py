@@ -81,6 +81,7 @@ class DataframeConnection:
         return pd.read_excel(self.db_file, sheet_name=table_name, parse_dates=True, date_parser=pd.to_datetime)
 
     def _get_csv_dataframe(self) -> pd.DataFrame:
+        # TODO: Fix CSV datetime parsing
         try:
             return pd.read_csv(self.db_file, on_bad_lines="error", encoding="utf-8", engine="python", parse_dates=True, date_parser=pd.to_datetime)
         except pd.errors.EmptyDataError:
