@@ -103,7 +103,7 @@ class MatplotlibFrame(wx.Frame):
 
     def _on_save_button(self, event):
         default_file = f"{self.title.lower().replace(' ', '-')}.png" if self.title else ""
-        default_file = re.sub(r"[<>:\"/\\|?*,]", "", default_file)
+        default_file = re.sub(r"[<>,:\"/\\|?*]", "", default_file)
         with wx.FileDialog(self, "Save Plot", defaultFile=default_file, wildcard="Image files (*.png;*.jpg)|*.png;*.jpg", style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as file_dialog:
             if file_dialog.ShowModal() == wx.ID_CANCEL: 
                 return
