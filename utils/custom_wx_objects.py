@@ -103,7 +103,7 @@ class MatplotlibFrame(wx.Frame):
 
     def _on_save_button(self, event):
         default_file = f"{self.title.lower().replace(' ', '-')}.png" if self.title else ""
-        default_file = re.sub(r"[<>:\"/\\|?*]", "", default_file)
+        default_file = re.sub(r"[<>:\"/\\|?*,]", "", default_file)
         with wx.FileDialog(self, "Save Plot", defaultFile=default_file, wildcard="Image files (*.png;*.jpg)|*.png;*.jpg", style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as file_dialog:
             if file_dialog.ShowModal() == wx.ID_CANCEL: 
                 return
@@ -129,7 +129,7 @@ class MatplotlibFrame(wx.Frame):
         log_scale_x = bool(abs(hist_data.skew()) > 2) if hist_data.dtype.kind in "biufc" else False
         
         for i, graph in enumerate(columns):
-            sns.histplot(data=df, x=graph, ax=ax, stat="density", bins="auto", log_scale=log_scale_x, label=graph)   
+            sns.histplot(data=df, x=graph, ax=ax, stat="count", bins="auto", log_scale=log_scale_x, label=graph)   
             if dist_names and params and i < min(len(dist_names), len(params)):
                 param_names = [name.strip() for name in getattr(st, dist_names[i]).shapes.split(",")] if getattr(st, dist_names[i]).shapes else []
                 param_names += ['loc'] if dist_names[i] in st._discrete_distns._distn_names else ['loc', 'scale']
