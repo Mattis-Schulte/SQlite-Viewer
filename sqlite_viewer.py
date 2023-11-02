@@ -3,7 +3,8 @@ import matplotlib.pyplot as plt
 import os.path as path
 import pandas as pd
 import scipy.stats as st
-import threading
+from threading import Event
+from concurrent.futures import ThreadPoolExecutor, Future
 from utils.database_handler import DataframeConnection
 from utils.custom_wx_objects import ColumnSelectionDialog, MatplotlibFrame
 import warnings
@@ -36,9 +37,9 @@ class SQLiteViewer(wx.Frame):
         self.sort_order = False
         self.search_query = None
         self.items_per_page = 250
-        self.list_ctrl_lock = threading.Lock()
-        self.stop_event = threading.Event()
+        self.executor = ThreadPoolExecutor(max_workers=1)
         self.loading_thread = None
+        self.load_table_data_flag = Event()
         self.create_menu_bar()
         self.create_dashboard()
         self.SetMinSize((450, 350))
@@ -178,43 +179,39 @@ class SQLiteViewer(wx.Frame):
         :param set_status: Whether to update the status bar text
         """
         def _worker():
-            # TODO: Kill thread if another table is selected before this one is loaded
-            with self.list_ctrl_lock:
-                self.save_column_attr(table_name=table_name)
-
-                try:
-                    df = self.db.get_filtered_sorted_df(table_name=table_name, sort_column=sort_column, sort_order=sort_order, search_query=search_query)
-                    offset = (page_number - 1) * page_size
-                    rows = df.iloc[offset:offset+page_size].values.tolist()
-                    total_rows = len(df.index)
-                    self.list_ctrl.ShowSortIndicator(col=df.columns.tolist().index(sort_column), ascending=sort_order) if sort_column else self.list_ctrl.RemoveSortIndicator()
-                except Exception as e:
-                    wx.CallAfter(self.list_ctrl.ClearAll)
-                    wx.CallAfter(self.next_page_button.Enable, False)
-                    wx.CallAfter(wx.MessageBox, f"Error opening table \"{table_name}\" due to:\n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
-                    wx.CallAfter(self.SetStatusText, "Error opening table")
-                    raise e
-
-                if not rows:
-                    wx.CallAfter(self.list_ctrl.ClearAll)
-                    wx.CallAfter(self.next_page_button.Enable, False)
-                    wx.CallAfter(wx.MessageBox, f"No data found in table \"{table_name}\"", "Error displaying table", wx.OK | wx.ICON_ERROR)
-                    wx.CallAfter(self.SetStatusText, "No data found in table")
-                    return
-
+            self.save_column_attr(table_name=table_name)
+            
+            try:
+                df = self.db.get_filtered_sorted_df(table_name=table_name, sort_column=sort_column, sort_order=sort_order, search_query=search_query)
+                offset = (page_number - 1) * page_size
+                rows = df.iloc[offset:offset+page_size].values.tolist()
+                total_rows = len(df.index)
                 self.total_pages = math.ceil(total_rows / page_size)
-                self.next_page_button.Enable(self.total_pages > 1)
-                wx.CallAfter(self.display_table, table_name=table_name, rows=rows, columns=df.columns.tolist())
-                wx.CallAfter(self.SetStatusText, f"Showing table: {table_name}, rows: {total_rows:,}, page: {page_number:,} of {self.total_pages:,}") if set_status else None
+            except Exception as e:
+                wx.CallAfter(self.list_ctrl.ClearAll)
+                wx.CallAfter(self.next_page_button.Enable, False)
+                wx.CallAfter(wx.MessageBox, f"Error opening table \"{table_name}\" due to:\n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+                wx.CallAfter(self.SetStatusText, "Error opening table")
+                raise e
 
-        if self.loading_thread:
-            if self.loading_thread.is_alive():
-                self.stop_event.set()
-                self.loading_thread.join()
-                
-        self.loading_thread = threading.Thread(target=_worker, name="load_table_data", daemon=True)
-        self.loading_thread.start()
-        wx.CallLater(600, lambda: self.progress_dialog(thread=self.loading_thread) if self.loading_thread.is_alive() else None)
+            if not rows:
+                wx.CallAfter(self.list_ctrl.ClearAll)
+                wx.CallAfter(self.next_page_button.Enable, False)
+                wx.CallAfter(wx.MessageBox, f"No data found in table \"{table_name}\"", "Error displaying table", wx.OK | wx.ICON_ERROR)
+                wx.CallAfter(self.SetStatusText, "No data found in table")
+                return
+
+            wx.CallAfter(self.next_page_button.Enable, self.total_pages > 1)
+            wx.CallAfter(self.list_ctrl.ShowSortIndicator, col=df.columns.tolist().index(sort_column), ascending=sort_order) if sort_column else wx.CallAfter(self.list_ctrl.RemoveSortIndicator)
+            wx.CallAfter(self.SetStatusText, f"Showing table: {table_name}, rows: {total_rows:,}, page: {page_number:,} of {self.total_pages:,}") if set_status else None
+            wx.CallAfter(self.display_table, table_name=table_name, rows=rows, columns=df.columns.tolist())
+
+        if self.loading_thread is not None and not self.loading_thread.done():
+            if not self.loading_thread.cancel():
+                self.load_table_data_flag.set()
+        
+        self.loading_thread = self.executor.submit(_worker)
+        wx.CallLater(600, lambda: self.progress_dialog(future=self.loading_thread) if not self.loading_thread.done() else None)
 
     def save_column_attr(self, table_name: str):
         """
@@ -233,7 +230,7 @@ class SQLiteViewer(wx.Frame):
                 }
             }
 
-    def display_table(self, table_name: str, rows: list, columns: list): 
+    def display_table(self, table_name: str, rows: list, columns: list):
         """
         Displays the specified rows and columns in the list control and applies the column order and widths if they exist in self.column_attr
 
@@ -248,25 +245,21 @@ class SQLiteViewer(wx.Frame):
         for i, row in enumerate(rows):
             self.list_ctrl.InsertItem(i, str(row[0]))
             for j, cell in enumerate(row[1:], start=1):
-                if self.stop_event.is_set():
-                    self.stop_event.clear()
+                if self.load_table_data_flag.is_set():
+                    self.load_table_data_flag.clear()
                     return
                 self.list_ctrl.SetItem(i, j, str(cell))
         if column_order := self.column_attr.get(table_name, {}).get("col_order"):
-            self.list_ctrl.SetColumnsOrder(column_order)
-        
-    def progress_dialog(self, thread: threading.Thread):
-        """
-        Displays a progress dialog while the specified thread is alive
-        
-        :param thread: The thread to check
-        """
-        for _thread in threading.enumerate():
-            if _thread.name == thread.name and _thread.is_alive() and _thread != thread:
-                return
+            self.list_ctrl.SetColumnsOrder(orders=column_order)
 
+    def progress_dialog(self, future: Future):
+        """
+        Displays a progress dialog while the specified future is running
+
+        :param future: The future to display a progress dialog for
+        """
         progress_dialog = wx.ProgressDialog("Processing data", "Processing data, please wait...", maximum=100, parent=self, style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE)
-        while thread.is_alive():
+        while future.running():
             progress_dialog.Pulse()
         progress_dialog.Destroy()
 
@@ -462,7 +455,7 @@ class SQLiteViewer(wx.Frame):
             frame.Show()
 
         def _worker():
-            dist_names = ["norm", "expon", "pareto", "lognorm", "gamma", "beta", "uniform", "dweibull"]
+            dist_names = ("norm", "expon", "pareto", "lognorm", "gamma", "beta", "uniform", "dweibull")
             best_dist, best_params, best_aic = None, None, math.inf
             
             try:
@@ -479,12 +472,10 @@ class SQLiteViewer(wx.Frame):
             except Exception as e:
                 wx.CallAfter(wx.MessageBox, f"Error finding best fitted distribution due to:\n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
                 raise e
-        
-        self.stop_event.set()
 
-        thread = threading.Thread(target=_worker, name="best_fitted_distribution", daemon=True)
-        thread.start()
-        wx.CallLater(600, lambda: self.progress_dialog(thread=thread) if thread.is_alive() else None)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_worker)
+            wx.CallLater(600, lambda: self.progress_dialog(future=future) if future.running() else None)
 
     def on_regression_analysis(self, df: pd.DataFrame, columns: list):
         """
