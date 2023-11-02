@@ -37,6 +37,8 @@ class SQLiteViewer(wx.Frame):
         self.search_query = None
         self.items_per_page = 250
         self.list_ctrl_lock = threading.Lock()
+        self.stop_event = threading.Event()
+        self.loading_thread = None
         self.create_menu_bar()
         self.create_dashboard()
         self.SetMinSize((450, 350))
@@ -205,9 +207,14 @@ class SQLiteViewer(wx.Frame):
                 wx.CallAfter(self.display_table, table_name=table_name, rows=rows, columns=df.columns.tolist())
                 wx.CallAfter(self.SetStatusText, f"Showing table: {table_name}, rows: {total_rows:,}, page: {page_number:,} of {self.total_pages:,}") if set_status else None
 
-        thread = threading.Thread(target=_worker, name="load_table_data", daemon=True)
-        thread.start()
-        wx.CallLater(600, lambda: self.progress_dialog(thread=thread) if thread.is_alive() else None)
+        if self.loading_thread:
+            if self.loading_thread.is_alive():
+                self.stop_event.set()
+                self.loading_thread.join()
+                
+        self.loading_thread = threading.Thread(target=_worker, name="load_table_data", daemon=True)
+        self.loading_thread.start()
+        wx.CallLater(600, lambda: self.progress_dialog(thread=self.loading_thread) if self.loading_thread.is_alive() else None)
 
     def save_column_attr(self, table_name: str):
         """
@@ -241,6 +248,9 @@ class SQLiteViewer(wx.Frame):
         for i, row in enumerate(rows):
             self.list_ctrl.InsertItem(i, str(row[0]))
             for j, cell in enumerate(row[1:], start=1):
+                if self.stop_event.is_set():
+                    self.stop_event.clear()
+                    return
                 self.list_ctrl.SetItem(i, j, str(cell))
         if column_order := self.column_attr.get(table_name, {}).get("col_order"):
             self.list_ctrl.SetColumnsOrder(column_order)
@@ -469,7 +479,9 @@ class SQLiteViewer(wx.Frame):
             except Exception as e:
                 wx.CallAfter(wx.MessageBox, f"Error finding best fitted distribution due to:\n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
                 raise e
-            
+        
+        self.stop_event.set()
+
         thread = threading.Thread(target=_worker, name="best_fitted_distribution", daemon=True)
         thread.start()
         wx.CallLater(600, lambda: self.progress_dialog(thread=thread) if thread.is_alive() else None)
