@@ -37,8 +37,9 @@ class SQLiteViewer(wx.Frame):
         self.sort_order = False
         self.search_query = None
         self.items_per_page = 250
-        self.executor = ThreadPoolExecutor(max_workers=1)
-        self.loading_thread = None
+        self.main_executor = ThreadPoolExecutor(max_workers=1)
+        self.secondary_executor = ThreadPoolExecutor()
+        self.list_ctrl_loading_thread = None
         self.load_table_data_flag = Event()
         self.create_menu_bar()
         self.create_dashboard()
@@ -206,12 +207,12 @@ class SQLiteViewer(wx.Frame):
             wx.CallAfter(self.SetStatusText, f"Showing table: {table_name}, rows: {total_rows:,}, page: {page_number:,} of {self.total_pages:,}") if set_status else None
             wx.CallAfter(self.display_table, table_name=table_name, rows=rows, columns=df.columns.tolist())
 
-        if self.loading_thread is not None and not self.loading_thread.done():
-            if not self.loading_thread.cancel():
+        if self.list_ctrl_loading_thread is not None and not self.list_ctrl_loading_thread.done():
+            if not self.list_ctrl_loading_thread.cancel():
                 self.load_table_data_flag.set()
         
-        self.loading_thread = self.executor.submit(_worker)
-        wx.CallLater(600, lambda: self.progress_dialog(future=self.loading_thread) if not self.loading_thread.done() else None)
+        self.list_ctrl_loading_thread = self.main_executor.submit(_worker)
+        wx.CallLater(600, lambda: self.progress_dialog(future=self.list_ctrl_loading_thread) if not self.list_ctrl_loading_thread.done() else None)
 
     def save_column_attr(self, table_name: str):
         """
@@ -473,9 +474,8 @@ class SQLiteViewer(wx.Frame):
                 wx.CallAfter(wx.MessageBox, f"Error finding best fitted distribution due to:\n{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
                 raise e
 
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_worker)
-            wx.CallLater(600, lambda: self.progress_dialog(future=future) if future.running() else None)
+        loading_thread = self.secondary_executor.submit(_worker)
+        wx.CallLater(600, lambda: self.progress_dialog(future=loading_thread) if not loading_thread.done() else None)
 
     def on_regression_analysis(self, df: pd.DataFrame, columns: list):
         """
