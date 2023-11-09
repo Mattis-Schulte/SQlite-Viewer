@@ -405,7 +405,7 @@ class SQLiteViewer(wx.Frame):
         :param df: The dataframe to analyze
         :param columns: The names of the columns to analyze as a list
         """
-        message = "\n".join([f"{column}:\n{df[column].describe(datetime_is_numeric=True)}\n" for column in columns])
+        message = "\n".join([f"{column}:\n{df[column].describe()}\n" for column in columns])
         wx.MessageBox(message, "Descriptive statistics", wx.OK | wx.ICON_INFORMATION)
 
     def on_histogram(self, df: pd.DataFrame, columns: list):
