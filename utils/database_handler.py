@@ -83,8 +83,8 @@ class DataframeConnection:
     def _get_csv_dataframe(self) -> pd.DataFrame:
         # TODO: Fix CSV datetime parsing
         try:
-            return pd.read_csv(self.db_file, on_bad_lines="error", encoding="utf-8", engine="python", parse_dates=True, date_parser=pd.to_datetime)
+            return pd.read_csv(self.db_file, on_bad_lines="error", encoding="utf-8", engine="python")
         except pd.errors.EmptyDataError:
             return pd.DataFrame()
         except (TypeError, ValueError):
-            return pd.read_csv(self.db_file, sep=";", on_bad_lines="warn", encoding="utf-8", engine="python", parse_dates=True, date_parser=pd.to_datetime)
+            return pd.read_csv(self.db_file, sep=";", on_bad_lines="warn", encoding="utf-8", engine="python")

@@ -29,6 +29,7 @@ class SQLiteViewer(wx.Frame):
 
     def __init__(self):
         super().__init__(None, title="SQLite Viewer: No database loaded", size=(900, 500))
+        warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
         warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy")
         self.db = None
         self.current_page = 1
