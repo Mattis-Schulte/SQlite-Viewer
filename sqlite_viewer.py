@@ -214,6 +214,7 @@ class SQLiteViewer(wx.Frame):
         
         self.list_ctrl_loading_thread = self.main_executor.submit(_worker)
         wx.CallLater(600, lambda: self.progress_dialog(future=self.list_ctrl_loading_thread) if not self.list_ctrl_loading_thread.done() else None)
+        # TODO: Fix race condition
 
     def save_column_attr(self, table_name: str):
         """
